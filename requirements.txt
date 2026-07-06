@@ -1,0 +1,8 @@
+# Core runtime for the stage-1 mirror demo. Pinned to a verified-working set
+# on Windows 11 / Python 3.10. Note: dex-retargeting / Pinocchio is deliberately
+# NOT used here (it fails to build on Windows); retargeting is native MuJoCo.
+mujoco==3.10.0
+mediapipe==0.10.35
+opencv-python==5.0.0.93
+numpy==2.2.6
+pillow==12.3.0
