@@ -24,6 +24,29 @@ import numpy as np
 from . import DEFAULT_SCENE
 from .protocol import DEFAULT_PORT, KeypointFrame, KeypointReceiver
 from .retarget import LeapRetargeter
+from .wrist import WristMapper
+
+
+def build_floating_model(scene_path=DEFAULT_SCENE):
+    """Compile the LEAP scene with a 6-DoF free joint on the palm and no gravity.
+
+    The retargeter keeps using the fixed-base model to solve finger angles (which
+    are valid in the palm frame regardless of where the palm is). This floating
+    model is what we display and step; its base is driven directly from the
+    tracked wrist pose. Returns (model, data, base_qadr, base_vadr).
+    """
+    spec = mujoco.MjSpec.from_file(str(scene_path))
+    spec.body("palm").add_freejoint()
+    spec.option.gravity = [0.0, 0.0, 0.0]
+    model = spec.compile()
+    data = mujoco.MjData(model)
+    base_q, base_v = 0, 0
+    for j in range(model.njnt):
+        if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE:
+            base_q, base_v = model.jnt_qposadr[j], model.jnt_dofadr[j]
+            break
+    mujoco.mj_forward(model, data)
+    return model, data, base_q, base_v
 
 
 class LandmarkSmoother:
@@ -59,10 +82,14 @@ def _synthetic_stream():
 
 
 def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
-        alpha=0.5, out_dir=None):
+        alpha=0.5, wrist_mode="orient", out_dir=None):
     rt = LeapRetargeter(DEFAULT_SCENE)
     smoother = LandmarkSmoother(alpha=alpha)
-    model, data = rt.model, rt.data
+    model, data, base_q, base_v = build_floating_model(DEFAULT_SCENE)
+    rest_pos = model.qpos0[base_q:base_q + 3].copy()
+    rest_quat = model.qpos0[base_q + 3:base_q + 7].copy()
+    wrist = WristMapper(rest_pos, rest_quat, mode=wrist_mode)
+    base_pos, base_quat = rest_pos.copy(), rest_quat.copy()
 
     receiver = gen = None
     if source == "udp":
@@ -98,7 +125,7 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
         viewer = mj_viewer.launch_passive(model, data)
 
     print(f"[mirror] source={source} calibrate_first={calibrate_first} "
-          f"substeps/frame={substeps}")
+          f"wrist={wrist_mode} substeps/frame={substeps}")
 
     try:
         loop = range(headless) if headless else iter(int, 1)  # finite vs infinite
@@ -107,14 +134,19 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
             if frame is not None:
                 if not calibrated and frame.tracked and frame.confidence >= 0.5:
                     rt.calibrate(frame.world)
+                    wrist.calibrate(frame.world, frame.image)
                     calibrated = True
                     print("[mirror] calibrated on first tracked frame")
                 world, frozen = smoother.update(frame)
                 if world is not None:
                     rt.solve(world)
+                    base_pos, base_quat = wrist.pose(world, frame.image)
                     lat.append((time.time() - frame.t_capture) * 1000.0)
 
             data.ctrl[:] = rt.q
+            data.qpos[base_q:base_q + 3] = base_pos
+            data.qpos[base_q + 3:base_q + 7] = base_quat
+            data.qvel[base_v:base_v + 6] = 0.0
             for _ in range(substeps):
                 mujoco.mj_step(model, data)
 
@@ -155,10 +187,12 @@ def main():
     ap.add_argument("--headless", type=int, default=0,
                     help="render N frames offscreen instead of opening a viewer")
     ap.add_argument("--alpha", type=float, default=0.5, help="smoothing factor")
+    ap.add_argument("--wrist", choices=["off", "orient", "full"], default="orient",
+                    help="base motion: off, orientation only, or 6-DoF")
     ap.add_argument("--no-calibrate", dest="calibrate", action="store_false")
     args = ap.parse_args()
     run(source=args.source, port=args.port, headless=args.headless,
-        calibrate_first=args.calibrate, alpha=args.alpha)
+        calibrate_first=args.calibrate, alpha=args.alpha, wrist_mode=args.wrist)
 
 
 if __name__ == "__main__":

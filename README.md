@@ -11,11 +11,15 @@ in real time.
   16 joints, solved natively in MuJoCo (no Pinocchio).
 - LEAP hand mirrors the human hand in a MuJoCo viewer, with occlusion freeze and
   landmark smoothing.
+- Wrist orientation: the palm tilts and rolls with the hand (reusing the
+  palm-plane rotation the retargeting otherwise discards). Optional 6-DoF adds
+  translation from the 2D image landmarks.
 - Record / replay of keypoint streams so the sim side can be developed without a
   camera.
 
-Finger articulation only in this stage: keypoints are wrist-relative, so global
-hand position and wrist 6-DoF are intentionally out of scope until later.
+Finger articulation plus wrist orientation for now. Wrist translation (6-DoF) is
+available but noisy on the depth axis from a single RGB camera; a full arm is
+not built yet.
 
 ## Architecture
 
@@ -48,8 +52,16 @@ python -m hand_teleop.tracker --show     # terminal 1: camera + overlay
 python -m hand_teleop.mirror             # terminal 2: MuJoCo LEAP hand
 ```
 
-Hold an open hand toward the camera for the first second so the retargeter
-calibrates, then move your fingers.
+Hold an open, neutral hand toward the camera for the first second so the
+retargeter and wrist calibrate, then move your fingers and tilt your hand.
+
+Wrist motion is controlled by `--wrist`:
+
+```
+python -m hand_teleop.mirror --wrist orient   # default: rotation only
+python -m hand_teleop.mirror --wrist full     # add translation (noisy depth)
+python -m hand_teleop.mirror --wrist off      # fingers only, palm fixed
+```
 
 
 ## Record / replay
@@ -62,7 +74,7 @@ python -m hand_teleop.mirror                                 # mirror the replay
 
 ## Measurements
 
-| Stage | Number |
+| Step | Number |
 |---|---|
 | MediaPipe inference | ~10 ms mean, 12 ms p95 |
 | Retarget (16-DoF Gauss-Newton, 8 iters) | < 2 ms |

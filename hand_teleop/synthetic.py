@@ -75,6 +75,40 @@ def hand_pose(curls) -> np.ndarray:
     return lm
 
 
+def _rot(axis: str, theta: float) -> np.ndarray:
+    c, s = np.cos(theta), np.sin(theta)
+    if axis == "x":
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+    if axis == "y":
+        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+def apply_transform(world: np.ndarray, R: np.ndarray | None = None,
+                    t: np.ndarray | None = None) -> np.ndarray:
+    """Rigidly transform 21 landmarks. Rotation is about the wrist landmark."""
+    out = world.copy()
+    wrist = world[0].copy()  # landmark 0 is the wrist
+    if R is not None:
+        out = (R @ (out - wrist).T).T + wrist
+    if t is not None:
+        out = out + t
+    return out
+
+
+def wrist_sweep(n: int = 120, curl: float = 0.2) -> np.ndarray:
+    """Static finger pose while the whole hand tilts (x), rolls (y), yaws (z)."""
+    base = hand_pose(curl)
+    frames = []
+    for k in range(n):
+        p = k / n
+        R = (_rot("x", 0.6 * np.sin(p * 2 * np.pi))
+             @ _rot("y", 0.6 * np.sin(p * 4 * np.pi))
+             @ _rot("z", 0.4 * np.sin(p * 2 * np.pi)))
+        frames.append(apply_transform(base, R=R))
+    return np.array(frames)
+
+
 def sweep(n: int = 120) -> np.ndarray:
     """A test trajectory: open -> fist -> open, plus an isolated index wiggle."""
     frames = []
