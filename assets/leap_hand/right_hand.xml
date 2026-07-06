@@ -178,9 +178,6 @@
       <geom name="palm_collision_9" size="0.002 0.018 0.017" pos="-0.098 -0.009 -0.006" type="box" class="collision"/>
       <geom name="palm_collision_10" size="0.022 0.028 0.002" pos="-0.078 -0.003 0.01" type="box" class="collision"/>
 
-      <!-- teleop reference site: palm origin, root of the retargeting frame -->
-      <site name="palm_site" pos="-0.007 -0.022 -0.0187" size="0.006" rgba="0 1 0 0.5"/>
-
       <!-- index -->
       <body name="if_bs" pos="-0.007 0.023 -0.0187" quat="0.500003 0.5 0.5 -0.499997">
         <inertial pos="-0.022516 0.033882 0.016359" quat="0.388092 0.677951 -0.247713 0.573067" mass="0.044"
@@ -228,7 +225,6 @@
                 class="collision"/>
 
               <geom name="if_tip" class="tip"/>
-              <site name="if_tip_site" pos="0 -0.03 0.015" size="0.005" rgba="1 0 0 0.6"/>
             </body>
           </body>
         </body>
@@ -282,7 +278,6 @@
                 class="collision"/>
 
               <geom name="mf_tip" class="tip"/>
-              <site name="mf_tip_site" pos="0 -0.03 0.015" size="0.005" rgba="1 0 0 0.6"/>
             </body>
           </body>
         </body>
@@ -336,7 +331,6 @@
                 class="collision"/>
 
               <geom name="rf_tip" class="tip"/>
-              <site name="rf_tip_site" pos="0 -0.03 0.015" size="0.005" rgba="1 0 0 0.6"/>
             </body>
           </body>
         </body>
@@ -388,7 +382,6 @@
                 class="collision"/>
 
               <geom name="th_tip" class="thumb_tip"/>
-              <site name="th_tip_site" pos="0 -0.045 -0.015" size="0.005" rgba="1 0 0 0.6"/>
             </body>
           </body>
         </body>

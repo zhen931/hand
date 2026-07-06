@@ -1,0 +1,160 @@
+"""Hand configurations and a single model factory.
+
+Adding a new robot hand means writing one HandConfig: which body is the palm,
+which bodies are the fingertips, which human landmark each maps to, and which
+joints to drive. The retargeter and the mirror both build their models through
+build_model, so nothing downstream is hand-specific.
+
+Fingertip and palm sites are injected at load time with mjSpec, so we do not
+hand-edit the vendored model XML. The mirror also injects a free joint on the
+base body for wrist control.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import mujoco
+import numpy as np
+
+from . import ASSETS_DIR
+
+# MediaPipe fingertip landmark indices.
+LM_THUMB, LM_INDEX, LM_MIDDLE, LM_RING, LM_PINKY = 4, 8, 12, 16, 20
+
+
+@dataclass
+class Finger:
+    name: str
+    tip_body: str
+    landmark: int
+    weight: float = 1.0
+    tip_offset: tuple = (0.0, 0.0, 0.0)
+
+
+@dataclass
+class HandConfig:
+    name: str
+    scene: str                      # path relative to assets/
+    palm_body: str
+    base_body: str                  # body to attach the free joint to
+    fingers: list                   # list[Finger], canonical order
+    exclude_joints: tuple = ()      # actuated joints not driven by retargeting
+    palm_offset: tuple = (0.0, 0.0, 0.0)
+
+    @property
+    def scene_path(self):
+        return ASSETS_DIR / self.scene
+
+
+LEAP = HandConfig(
+    name="leap",
+    scene="leap_hand/scene_right.xml",
+    palm_body="palm",
+    base_body="palm",
+    fingers=[
+        Finger("index", "if_ds", LM_INDEX, tip_offset=(0, -0.03, 0.015)),
+        Finger("middle", "mf_ds", LM_MIDDLE, tip_offset=(0, -0.03, 0.015)),
+        Finger("ring", "rf_ds", LM_RING, tip_offset=(0, -0.03, 0.015)),
+        Finger("thumb", "th_ds", LM_THUMB, weight=1.2, tip_offset=(0, -0.045, -0.015)),
+    ],
+)
+
+# ORCA v2 right hand: 5 fingers, fully actuated. Body names carry mjSpec hashes.
+# Middle vs ring resolved by rest lateral position (both use the M mesh).
+ORCA = HandConfig(
+    name="orca",
+    scene="orca_hand/scene_right.xml",
+    palm_body="right_R-Carpals_8d1f1041",
+    base_body="right_mount",
+    fingers=[
+        Finger("index", "right_I-FingerTipAssembly_ec49c16c", LM_INDEX),
+        Finger("middle", "right_M-FingerTipAssembly_34afb748", LM_MIDDLE),
+        Finger("ring", "right_M-FingerTipAssembly_424a8e75", LM_RING),
+        Finger("pinky", "right_P-FingerTipAssembly_cd219176", LM_PINKY),
+        Finger("thumb", "right_T-DP_b7429e50", LM_THUMB, weight=1.2),
+    ],
+    exclude_joints=("right_wrist",),
+)
+
+HANDS = {"leap": LEAP, "orca": ORCA}
+DEFAULT_HAND = "orca"
+
+
+@dataclass
+class ModelInfo:
+    cfg: HandConfig
+    tip_site_ids: np.ndarray
+    palm_site_id: int
+    finger_qadr: np.ndarray         # qpos indices of the driven joints
+    finger_vadr: np.ndarray         # dof indices of the driven joints
+    lo: np.ndarray
+    hi: np.ndarray
+    landmarks: list
+    weights: np.ndarray
+    base_qadr: int | None = None
+    base_vadr: int | None = None
+
+
+def build_model(cfg: HandConfig, floating: bool = False):
+    """Compile the hand with fingertip/palm sites (and an optional free joint).
+
+    Returns (model, data, ModelInfo).
+    """
+    spec = mujoco.MjSpec.from_file(str(cfg.scene_path))
+
+    spec.body(cfg.palm_body).add_site(
+        name="palm_site", pos=list(cfg.palm_offset),
+        size=[0.008, 0.008, 0.008], rgba=[0, 1, 0, 0.5])
+    for f in cfg.fingers:
+        spec.body(f.tip_body).add_site(
+            name=f"{f.name}_tip", pos=list(f.tip_offset),
+            size=[0.006, 0.006, 0.006], rgba=[1, 0, 0, 0.7])
+
+    if floating:
+        spec.body(cfg.base_body).add_freejoint()
+        spec.option.gravity = [0.0, 0.0, 0.0]
+
+    model = spec.compile()
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+
+    tip_ids = np.array([
+        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, f"{f.name}_tip")
+        for f in cfg.fingers])
+    palm_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "palm_site")
+
+    # Driven joints: every hinge joint except the excluded ones.
+    qadr, vadr, lo, hi = [], [], [], []
+    for j in range(model.njnt):
+        if model.jnt_type[j] != mujoco.mjtJoint.mjJNT_HINGE:
+            continue
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j)
+        if name in cfg.exclude_joints:
+            continue
+        qadr.append(model.jnt_qposadr[j])
+        vadr.append(model.jnt_dofadr[j])
+        lo.append(model.jnt_range[j, 0])
+        hi.append(model.jnt_range[j, 1])
+
+    base_q = base_v = None
+    if floating:
+        for j in range(model.njnt):
+            if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE:
+                base_q, base_v = model.jnt_qposadr[j], model.jnt_dofadr[j]
+                break
+
+    info = ModelInfo(
+        cfg=cfg,
+        tip_site_ids=tip_ids,
+        palm_site_id=palm_id,
+        finger_qadr=np.array(qadr),
+        finger_vadr=np.array(vadr),
+        lo=np.array(lo),
+        hi=np.array(hi),
+        landmarks=[f.landmark for f in cfg.fingers],
+        weights=np.array([f.weight for f in cfg.fingers]),
+        base_qadr=base_q,
+        base_vadr=base_v,
+    )
+    return model, data, info

@@ -1,4 +1,4 @@
-"""Simulation layer: keypoints -> smoothing -> retarget -> MuJoCo LEAP hand.
+"""Simulation layer: keypoints -> smoothing -> retarget -> MuJoCo hand.
 
 Run (two terminals):
     python -m hand_teleop.tracker --show        # terminal 1
@@ -7,9 +7,11 @@ Run (two terminals):
 Or self-contained without a camera / display (used for headless verification):
     python -m hand_teleop.mirror --source synthetic --headless 90
 
-The consumer holds its last pose when tracking confidence drops below a
-threshold (the spec's occlusion freeze) and exponentially smooths incoming
-landmarks to damp jitter.
+The displayed hand has a free-jointed floating base (for the wrist) and gravity
+off, so we set its pose kinematically each frame: finger joint angles from the
+retargeter, base pose from the wrist mapper. The consumer holds its last pose
+when tracking confidence drops below a threshold (the occlusion freeze) and
+exponentially smooths incoming landmarks to damp jitter.
 """
 
 from __future__ import annotations
@@ -21,32 +23,10 @@ from collections import deque
 import mujoco
 import numpy as np
 
-from . import DEFAULT_SCENE
+from .hands import DEFAULT_HAND, HANDS, build_model
 from .protocol import DEFAULT_PORT, KeypointFrame, KeypointReceiver
-from .retarget import LeapRetargeter
+from .retarget import Retargeter
 from .wrist import WristMapper
-
-
-def build_floating_model(scene_path=DEFAULT_SCENE):
-    """Compile the LEAP scene with a 6-DoF free joint on the palm and no gravity.
-
-    The retargeter keeps using the fixed-base model to solve finger angles (which
-    are valid in the palm frame regardless of where the palm is). This floating
-    model is what we display and step; its base is driven directly from the
-    tracked wrist pose. Returns (model, data, base_qadr, base_vadr).
-    """
-    spec = mujoco.MjSpec.from_file(str(scene_path))
-    spec.body("palm").add_freejoint()
-    spec.option.gravity = [0.0, 0.0, 0.0]
-    model = spec.compile()
-    data = mujoco.MjData(model)
-    base_q, base_v = 0, 0
-    for j in range(model.njnt):
-        if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE:
-            base_q, base_v = model.jnt_qposadr[j], model.jnt_dofadr[j]
-            break
-    mujoco.mj_forward(model, data)
-    return model, data, base_q, base_v
 
 
 class LandmarkSmoother:
@@ -82,10 +62,13 @@ def _synthetic_stream():
 
 
 def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
-        alpha=0.5, wrist_mode="orient", out_dir=None):
-    rt = LeapRetargeter(DEFAULT_SCENE)
+        alpha=0.5, wrist_mode="orient", hand=DEFAULT_HAND, out_dir=None):
+    cfg = HANDS[hand] if isinstance(hand, str) else hand
+    rt = Retargeter(cfg)
     smoother = LandmarkSmoother(alpha=alpha)
-    model, data, base_q, base_v = build_floating_model(DEFAULT_SCENE)
+    model, data, info = build_model(cfg, floating=True)
+    base_q, base_v = info.base_qadr, info.base_vadr
+    fq = info.finger_qadr
     rest_pos = model.qpos0[base_q:base_q + 3].copy()
     rest_quat = model.qpos0[base_q + 3:base_q + 7].copy()
     wrist = WristMapper(rest_pos, rest_quat, mode=wrist_mode)
@@ -106,8 +89,6 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
     calibrated = not calibrate_first
 
     lat = deque(maxlen=120)
-    step_ns = model.opt.timestep
-    substeps = max(1, int(round((1 / 60) / step_ns)))  # ~>=200 Hz actuation
 
     renderer = frames_written = None
     if headless:
@@ -124,8 +105,8 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
         from mujoco import viewer as mj_viewer
         viewer = mj_viewer.launch_passive(model, data)
 
-    print(f"[mirror] source={source} calibrate_first={calibrate_first} "
-          f"wrist={wrist_mode} substeps/frame={substeps}")
+    print(f"[mirror] hand={cfg.name} source={source} "
+          f"calibrate_first={calibrate_first} wrist={wrist_mode}")
 
     try:
         loop = range(headless) if headless else iter(int, 1)  # finite vs infinite
@@ -143,12 +124,11 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
                     base_pos, base_quat = wrist.pose(world, frame.image)
                     lat.append((time.time() - frame.t_capture) * 1000.0)
 
-            data.ctrl[:] = rt.q
+            # Kinematic mirror: place finger joints and the floating base directly.
+            data.qpos[fq] = rt.q
             data.qpos[base_q:base_q + 3] = base_pos
             data.qpos[base_q + 3:base_q + 7] = base_quat
-            data.qvel[base_v:base_v + 6] = 0.0
-            for _ in range(substeps):
-                mujoco.mj_step(model, data)
+            mujoco.mj_forward(model, data)
 
             if headless:
                 img = renderer.frame(data)
@@ -161,8 +141,9 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
             else:
                 viewer.sync()
                 if lat and frame is not None and frame.frame_id % 30 == 0:
+                    dropped = receiver.dropped if receiver is not None else 0
                     print(f"[mirror] end-to-end latency ~{np.mean(lat):5.1f} ms "
-                          f"(p95 {np.percentile(lat,95):5.1f})  dropped={receiver.dropped}")
+                          f"(p95 {np.percentile(lat,95):5.1f})  dropped={dropped}")
                 time.sleep(max(0.0, 1/60 - 0.001))
     except KeyboardInterrupt:
         pass
@@ -189,10 +170,12 @@ def main():
     ap.add_argument("--alpha", type=float, default=0.5, help="smoothing factor")
     ap.add_argument("--wrist", choices=["off", "orient", "full"], default="orient",
                     help="base motion: off, orientation only, or 6-DoF")
+    ap.add_argument("--hand", choices=list(HANDS), default=DEFAULT_HAND)
     ap.add_argument("--no-calibrate", dest="calibrate", action="store_false")
     args = ap.parse_args()
     run(source=args.source, port=args.port, headless=args.headless,
-        calibrate_first=args.calibrate, alpha=args.alpha, wrist_mode=args.wrist)
+        calibrate_first=args.calibrate, alpha=args.alpha, wrist_mode=args.wrist,
+        hand=args.hand)
 
 
 if __name__ == "__main__":

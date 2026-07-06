@@ -54,17 +54,19 @@ def hand_scale(world: np.ndarray) -> float:
     return float(np.linalg.norm(world[MIDDLE_MCP] - world[WRIST]))
 
 
-def fingertip_vectors(world: np.ndarray) -> np.ndarray:
-    """(4, 3) scale-normalized fingertip vectors in the local hand frame.
+def fingertip_vectors(world: np.ndarray, landmarks=FINGERTIP_LANDMARKS) -> np.ndarray:
+    """(N, 3) scale-normalized fingertip vectors in the local hand frame.
 
-    Order matches FINGERTIP_LANDMARKS: index, middle, ring, thumb.
+    landmarks is the ordered list of MediaPipe fingertip indices to use, one per
+    robot finger. Defaults to index, middle, ring, thumb (the LEAP layout);
+    five-finger hands pass their own list including the pinky.
     """
     wrist = world[WRIST]
     R = hand_local_frame(world)
     scale = hand_scale(world)
     if scale < 1e-6:
         scale = 1.0
-    out = np.zeros((4, 3), dtype=np.float64)
-    for i, lm in enumerate(FINGERTIP_LANDMARKS):
+    out = np.zeros((len(landmarks), 3), dtype=np.float64)
+    for i, lm in enumerate(landmarks):
         out[i] = (R.T @ (world[lm] - wrist)) / scale
     return out
