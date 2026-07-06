@@ -2,9 +2,9 @@
 
 Markerless, vision-based teleoperation of a simulated dexterous hand. A webcam
 tracks a human hand and a simulated [LEAP hand](https://leaphand.com/) mirrors it
-in real time. This is stage 1 of the platform: a zero-cost, all-software loop.
+in real time. 
 
-## What works today
+## So far
 
 - Webcam -> MediaPipe HandLandmarker -> 21-point 3D hand skeleton.
 - Cross-embodiment retargeting from the 21 human keypoints to the LEAP hand's
@@ -15,7 +15,7 @@ in real time. This is stage 1 of the platform: a zero-cost, all-software loop.
   camera.
 
 Finger articulation only in this stage: keypoints are wrist-relative, so global
-hand position and wrist 6-DoF are intentionally out of scope until stage 2.
+hand position and wrist 6-DoF are intentionally out of scope until later.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ hand position and wrist 6-DoF are intentionally out of scope until stage 2.
 ```
 
 The two halves run as separate processes and talk over a local UDP socket, so
-perception (Founder 2) and simulation (Founder 1) can be developed and profiled
+perception and simulation can be developed and profiled
 independently. The packet format is the interface contract; see
 [hand_teleop/protocol.py](hand_teleop/protocol.py).
 
@@ -51,14 +51,6 @@ python -m hand_teleop.mirror             # terminal 2: MuJoCo LEAP hand
 Hold an open hand toward the camera for the first second so the retargeter
 calibrates, then move your fingers.
 
-### No camera? Everything runs synthetically.
-
-```
-python -m hand_teleop.mirror --source synthetic          # self-contained loop
-python -m hand_teleop.tracker --synthetic                # stream a test sweep over UDP
-python tools/smoke.py                                    # render open/half/fist PNGs
-python tools/test_pipeline.py                            # protocol + smoother checks
-```
 
 ## Record / replay
 
@@ -68,7 +60,7 @@ python -m hand_teleop.record replay  recordings/wave.npz --loop
 python -m hand_teleop.mirror                                 # mirror the replay
 ```
 
-## Measured on the dev laptop (Windows 11, CPU only)
+## Measurements
 
 | Stage | Number |
 |---|---|
@@ -76,10 +68,6 @@ python -m hand_teleop.mirror                                 # mirror the replay
 | Retarget (16-DoF Gauss-Newton, 8 iters) | < 2 ms |
 | Built-in webcam frame rate | ~30 fps (reports 60, delivers 30) |
 
-The 30 fps cap is a built-in-webcam limitation, not a software one; a ~$40
-external UVC camera reaches 60+ fps. The retargeting math and its divergence
-from the spec (native MuJoCo instead of dex-retargeting/Pinocchio) is documented
-in the [hand_teleop/retarget.py](hand_teleop/retarget.py) module docstring.
 
 ## Layout
 
