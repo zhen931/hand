@@ -32,7 +32,7 @@ from .wrist import WristMapper
 class LandmarkSmoother:
     """Confidence-gated exponential smoothing with an occlusion freeze."""
 
-    def __init__(self, alpha: float = 0.7, conf_freeze: float = 0.4):
+    def __init__(self, alpha: float = 0.85, conf_freeze: float = 0.4):
         self.alpha = alpha
         self.conf_freeze = conf_freeze
         self.state: np.ndarray | None = None
@@ -62,7 +62,7 @@ def _synthetic_stream():
 
 
 def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
-        alpha=0.7, wrist_mode="orient", hand=DEFAULT_HAND, out_dir=None):
+        alpha=0.85, wrist_mode="orient", hand=DEFAULT_HAND, out_dir=None):
     cfg = HANDS[hand] if isinstance(hand, str) else hand
     rt = Retargeter(cfg)
     smoother = LandmarkSmoother(alpha=alpha)
@@ -112,6 +112,9 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
             elif keycode in (ord("F"), ord("f")):
                 wrist.flip = not wrist.flip
                 print(f"[mirror] wrist flip = {wrist.flip}")
+            elif keycode in (ord("G"), ord("g")):
+                wrist.mirror = not wrist.mirror
+                print(f"[mirror] wrist twist-mirror = {wrist.mirror}")
 
         viewer = mj_viewer.launch_passive(model, data, key_callback=key_callback)
         # Front view matching the MediaPipe-to-world mapping, so the robot reads
@@ -187,7 +190,7 @@ def main():
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--headless", type=int, default=0,
                     help="render N frames offscreen instead of opening a viewer")
-    ap.add_argument("--alpha", type=float, default=0.7,
+    ap.add_argument("--alpha", type=float, default=0.85,
                     help="landmark smoothing (higher = less lag, more jitter)")
     ap.add_argument("--wrist", choices=["off", "orient", "full"], default="orient",
                     help="base motion: off, orientation only, or 6-DoF")

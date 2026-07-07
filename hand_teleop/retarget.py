@@ -32,9 +32,9 @@ from .hands import DEFAULT_HAND, HANDS, build_model
 
 @dataclass
 class RetargetConfig:
-    lam: float = 0.02          # temporal smoothing weight (lambda)
+    lam: float = 0.004         # temporal smoothing weight (lambda); low = snappy
     damping: float = 0.05      # Levenberg-Marquardt damping
-    iters: int = 8             # Gauss-Newton iterations per frame
+    iters: int = 12            # Gauss-Newton iterations per frame
 
 
 class Retargeter:

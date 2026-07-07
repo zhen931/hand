@@ -41,11 +41,11 @@ class HandConfig:
     fingers: list                   # list[Finger], canonical order
     exclude_joints: tuple = ()      # actuated joints not driven by retargeting
     palm_offset: tuple = (0.0, 0.0, 0.0)
-    # Substrings identifying side-to-side (abduction/spread) joints. These are
-    # regularized toward neutral so the solver does not splay/cross the fingers
-    # chasing the lateral spread of the human hand.
-    spread_tokens: tuple = ("abd", "rot")
-    spread_reg: float = 0.08
+    # Per-joint neutral regularization: joint-name substring -> weight. Keeps the
+    # solver from splaying/crossing fingers (abduction joints) or folding the
+    # thumb to its limits, without stopping flexion tracking. A joint takes the
+    # max weight of the tokens it matches.
+    reg_tokens: dict = field(default_factory=lambda: {"abd": 0.08, "rot": 0.08})
 
     @property
     def scene_path(self):
@@ -88,10 +88,10 @@ ORCA = HandConfig(
                tip_offset=(0, 0, 0.028)),
     ],
     exclude_joints=("right_wrist",),
-    # The thumb maps poorly (very different kinematics), folding to its limits.
-    # Regularize all four thumb joints toward neutral so it stays natural and
-    # tracks grossly; finger flexion (i/m/r/p-mcp, -pip) is left free.
-    spread_tokens=("abd", "rot", "t-cmc", "t-mcp", "t-pip"),
+    # abd/rot: keep fingers from splaying. t-cmc: strong, or the thumb swings to
+    # its limit and folds across the palm. t-mcp/t-pip: light, so the thumb rests
+    # mostly extended but can still curl a little to track.
+    reg_tokens={"abd": 0.08, "rot": 0.08, "t-cmc": 0.15, "t-mcp": 0.04, "t-pip": 0.04},
 )
 
 HANDS = {"leap": LEAP, "orca": ORCA}
@@ -154,8 +154,8 @@ def build_model(cfg: HandConfig, floating: bool = False):
         vadr.append(model.jnt_dofadr[j])
         lo.append(model.jnt_range[j, 0])
         hi.append(model.jnt_range[j, 1])
-        is_spread = any(tok in name for tok in cfg.spread_tokens)
-        reg.append(cfg.spread_reg if is_spread else 0.0)
+        matched = [w for tok, w in cfg.reg_tokens.items() if tok in name]
+        reg.append(max(matched) if matched else 0.0)
 
     base_q = base_v = None
     if floating:

@@ -68,6 +68,11 @@ class WristMapper:
         # camera shows the robot palm to the viewer. Toggle live with 'f'.
         self._flip180 = np.diag([-1.0, -1.0, 1.0])
         self.flip = flip
+        # The tracker mirror-flips the camera image, which inverts the chirality
+        # of the hand frame and so reverses the twist direction. Conjugating the
+        # hand frame by a reflection undoes that. Toggle live with 'g'.
+        self._mirror_S = np.diag([-1.0, 1.0, 1.0])
+        self.mirror = True
         self.xy_gain = xy_gain
         self.z_gain = z_gain
         self.pos_alpha = pos_alpha
@@ -100,6 +105,8 @@ class WristMapper:
         # rotates rigidly with the base, the base orientation that achieves this is
         #   B = (M H) robot_frame^T rest_R.
         H = hand_local_frame(world)
+        if self.mirror:
+            H = self._mirror_S @ H @ self._mirror_S
         R_base = self.M @ H @ self.robot_frame.T @ self.rest_R
         if self.flip:
             R_base = self._flip180 @ R_base
