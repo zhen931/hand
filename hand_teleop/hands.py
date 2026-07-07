@@ -84,10 +84,14 @@ ORCA = HandConfig(
                tip_offset=(0, 0, 0.028)),
         Finger("pinky", "right_P-FingerTipAssembly_cd219176", LM_PINKY,
                tip_offset=(0, 0, 0.028)),
-        Finger("thumb", "right_T-DP_b7429e50", LM_THUMB, weight=1.2,
+        Finger("thumb", "right_T-DP_b7429e50", LM_THUMB, weight=0.5,
                tip_offset=(0, 0, 0.028)),
     ],
     exclude_joints=("right_wrist",),
+    # The thumb maps poorly (very different kinematics), folding to its limits.
+    # Regularize all four thumb joints toward neutral so it stays natural and
+    # tracks grossly; finger flexion (i/m/r/p-mcp, -pip) is left free.
+    spread_tokens=("abd", "rot", "t-cmc", "t-mcp", "t-pip"),
 )
 
 HANDS = {"leap": LEAP, "orca": ORCA}

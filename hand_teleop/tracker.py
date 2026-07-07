@@ -76,6 +76,8 @@ def _run_live(sender: KeypointSender, camera: int, width: int, height: int,
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, want_fps)
+    # Keep only the newest frame so read() never returns a buffered stale one.
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     if not cap.isOpened():
         raise RuntimeError(f"could not open camera {camera}")
 

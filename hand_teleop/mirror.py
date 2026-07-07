@@ -32,7 +32,7 @@ from .wrist import WristMapper
 class LandmarkSmoother:
     """Confidence-gated exponential smoothing with an occlusion freeze."""
 
-    def __init__(self, alpha: float = 0.5, conf_freeze: float = 0.4):
+    def __init__(self, alpha: float = 0.7, conf_freeze: float = 0.4):
         self.alpha = alpha
         self.conf_freeze = conf_freeze
         self.state: np.ndarray | None = None
@@ -62,7 +62,7 @@ def _synthetic_stream():
 
 
 def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
-        alpha=0.5, wrist_mode="orient", hand=DEFAULT_HAND, out_dir=None):
+        alpha=0.7, wrist_mode="orient", hand=DEFAULT_HAND, out_dir=None):
     cfg = HANDS[hand] if isinstance(hand, str) else hand
     rt = Retargeter(cfg)
     smoother = LandmarkSmoother(alpha=alpha)
@@ -109,6 +109,9 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
         def key_callback(keycode):
             if keycode in (ord("C"), ord("c")):
                 recal["pending"] = True
+            elif keycode in (ord("F"), ord("f")):
+                wrist.flip = not wrist.flip
+                print(f"[mirror] wrist flip = {wrist.flip}")
 
         viewer = mj_viewer.launch_passive(model, data, key_callback=key_callback)
         # Front view matching the MediaPipe-to-world mapping, so the robot reads
@@ -159,7 +162,9 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
                     dropped = receiver.dropped if receiver is not None else 0
                     print(f"[mirror] end-to-end latency ~{np.mean(lat):5.1f} ms "
                           f"(p95 {np.percentile(lat,95):5.1f})  dropped={dropped}")
-                time.sleep(max(0.0, 1/60 - 0.001))
+                # Small yield only; the viewer's own vsync paces rendering. A big
+                # sleep here would add that much latency to every frame.
+                time.sleep(0.002)
     except KeyboardInterrupt:
         pass
     finally:
@@ -182,7 +187,8 @@ def main():
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--headless", type=int, default=0,
                     help="render N frames offscreen instead of opening a viewer")
-    ap.add_argument("--alpha", type=float, default=0.5, help="smoothing factor")
+    ap.add_argument("--alpha", type=float, default=0.7,
+                    help="landmark smoothing (higher = less lag, more jitter)")
     ap.add_argument("--wrist", choices=["off", "orient", "full"], default="orient",
                     help="base motion: off, orientation only, or 6-DoF")
     ap.add_argument("--hand", choices=list(HANDS), default=DEFAULT_HAND)

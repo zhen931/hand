@@ -53,8 +53,8 @@ def _nlerp(q0: np.ndarray, q1: np.ndarray, a: float) -> np.ndarray:
 
 class WristMapper:
     def __init__(self, rest_pos, rest_quat, robot_frame, mode="orient",
-                 mp_to_world=MEDIAPIPE_TO_MUJOCO,
-                 xy_gain=0.18, z_gain=0.30, pos_alpha=0.4, rot_alpha=0.5):
+                 mp_to_world=MEDIAPIPE_TO_MUJOCO, flip=True,
+                 xy_gain=0.18, z_gain=0.30, pos_alpha=0.6, rot_alpha=0.7):
         self.rest_pos = np.asarray(rest_pos, dtype=np.float64).copy()
         self.rest_quat = np.asarray(rest_quat, dtype=np.float64).copy()
         self.rest_R = quat2mat(self.rest_quat)
@@ -64,6 +64,10 @@ class WristMapper:
         self.robot_frame = np.asarray(robot_frame, dtype=np.float64).copy()
         self.mode = mode
         self.M = np.asarray(mp_to_world, dtype=np.float64).copy()
+        # 180 degree turn about the world vertical, so showing your palm to the
+        # camera shows the robot palm to the viewer. Toggle live with 'f'.
+        self._flip180 = np.diag([-1.0, -1.0, 1.0])
+        self.flip = flip
         self.xy_gain = xy_gain
         self.z_gain = z_gain
         self.pos_alpha = pos_alpha
@@ -97,6 +101,8 @@ class WristMapper:
         #   B = (M H) robot_frame^T rest_R.
         H = hand_local_frame(world)
         R_base = self.M @ H @ self.robot_frame.T @ self.rest_R
+        if self.flip:
+            R_base = self._flip180 @ R_base
         target_quat = mat2quat(R_base)
 
         target_pos = self.rest_pos.copy()
