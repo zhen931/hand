@@ -1,22 +1,25 @@
-"""Cross-embodiment retargeting: human fingertip vectors -> robot joint angles.
+"""Cross-embodiment retargeting: human hand pose -> robot finger joint angles.
 
 Hand-agnostic. The hand geometry comes from a HandConfig (see hands.py); this
-module only knows about fingertip sites, a palm site, and a set of driven joints.
+module only needs each finger's landmark chain and which joints flex it.
 
-Native MuJoCo implementation. We do NOT use dex-retargeting / Pinocchio here:
-on Windows that stack fails to build (Pinocchio pulls Boost and compiles from
-source). Instead we solve the same optimization directly with MuJoCo's own
-forward kinematics and site Jacobians, one dependency (`mujoco`).
+Fingers use direct flexion mapping: we measure how curled each human finger is
+(the sum of its bend angles, see hand_frame.finger_bend) and drive the robot
+finger's flexion joints across their range by that amount. This is monotonic and
+robust across embodiments. Fingertip-position matching (mapping the human tip to
+a robot target and solving IK) was tried first and abandoned: a single hand
+rotation plus scale cannot align each finger's direction, so it produced splayed,
+crossing, non-monotonic poses (open hands that would not fully open, fists that
+hyperextended). Abduction and thumb-opposition joints are left neutral, which
+keeps fingers parallel (no crossing) and the thumb from folding.
 
-Objective solved per frame (matches the spec's cost function):
+Native MuJoCo, one dependency. We do NOT use dex-retargeting / Pinocchio: on
+Windows that stack fails to build (Pinocchio compiles Boost from source).
 
-    L(q) = sum_i w_i || p_i(q) - target_i ||^2  +  lambda || q - q_prev ||^2
-
-where p_i(q) is robot fingertip i from forward kinematics and target_i is the
-human fingertip mapped into the robot palm frame. Warm-starting from q_prev plus
-the lambda term gives temporal smoothing. Solved with damped Gauss-Newton
-(Levenberg-Marquardt). Angles are palm-relative, so the wrist/base pose is
-handled entirely separately (see wrist.py); this solver keeps the base fixed.
+Finger angles are palm-relative, so the wrist/base pose is handled entirely
+separately (see wrist.py); the robot hand frame built here (self.align) is what
+that module uses. The unused position-IK helpers (_tip_targets, scale) are kept
+only for diagnostics.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from .hand_frame import fingertip_vectors, orient_normal
+from .hand_frame import finger_bend, fingertip_vectors, orient_normal
 from .hands import DEFAULT_HAND, HANDS, build_model
 
 
@@ -57,6 +60,11 @@ class Retargeter:
         self.reg = self.info.reg          # per-joint pull toward neutral
         self.n = len(self.qadr)
 
+        # Per-finger flexion joints, for the direct flexion mapping in solve().
+        self._names = self._joint_names()
+        self._flex = self._flex_groups()
+        self._beta = 0.6                  # joint-space temporal smoothing
+
         self.q = np.clip(np.zeros(self.n), self.lo, self.hi)
         self._scratch_jac = np.zeros((3, self.model.nv))
 
@@ -69,7 +77,10 @@ class Retargeter:
         # (see hand_frame.fingertip_vectors), so this rotation carries them into
         # the robot frame directly and is invariant to wrist orientation.
         self.align = self._robot_frame()
-        self.scale = float(np.mean(np.linalg.norm(self._robot_open_vecs, axis=1)))
+        # Per-finger scale (one per fingertip). A single shared scale makes long
+        # fingers fall short of full extension and short fingers overshoot; per
+        # finger, each one's open maps to its own full extension and curl tracks.
+        self.scale = np.linalg.norm(self._robot_open_vecs, axis=1) / 1.8
 
     # -- forward kinematics helpers -------------------------------------------------
 
@@ -107,63 +118,68 @@ class Retargeter:
         across, forward, normal = orient_normal(across, forward, normal, r[thumb_idx])
         return np.column_stack([across, forward, normal])
 
+    def _joint_names(self):
+        names = []
+        for qa in self.qadr:
+            nm = ""
+            for j in range(self.model.njnt):
+                if self.model.jnt_qposadr[j] == qa:
+                    nm = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, j)
+                    break
+            names.append(nm or "")
+        return names
+
+    def _flex_groups(self):
+        """For each finger, the indices of its flexion joints and their upper
+        limits (fully curled). Abduction, thumb opposition (cmc), etc. are not
+        flexion and are left at neutral by the solve."""
+        groups = []
+        for finger in self.hand.fingers:
+            idxs, his = [], []
+            for i, nm in enumerate(self._names):
+                if finger.token in nm and any(t in nm for t in ("mcp", "pip", "dip")):
+                    idxs.append(i)
+                    his.append(self.hi[i])
+            groups.append((np.array(idxs, dtype=int), np.array(his)))
+        return groups
+
     def _tip_targets(self, world_landmarks: np.ndarray) -> np.ndarray:
         u = fingertip_vectors(world_landmarks, self.landmarks)   # (N, 3)
-        mapped = (self.align @ u.T).T * self.scale
+        mapped = (self.align @ u.T).T * self.scale[:, None]
         return self._palm0 + mapped
 
     # -- calibration ----------------------------------------------------------------
 
     def calibrate(self, world_landmarks: np.ndarray) -> None:
-        """Fit the mapping scale from an open-hand pose.
-
-        The rotation is fixed (the robot frame, see __init__); calibration only
-        sets the scale that maps the operator's open hand onto the robot's open
-        hand. This is essential: without it the human wrist-to-tip vectors (long)
-        overshoot the robot's palm-to-tip reach (short), pinning the fingers
-        extended so they barely curl. Optimal scale for fixed rotation is
-        <r, R u> / <R u, R u>.
-        """
-        u = fingertip_vectors(world_landmarks, self.landmarks)
-        r = self._robot_open_vecs
-        Ru = (self.align @ u.T).T
-        denom = float(np.sum(Ru * Ru))
-        if denom > 1e-9:
-            self.scale = float(np.sum(r * Ru) / denom)
+        """No-op. Flexion mapping is calibration-free (bend angles are intrinsic
+        to the hand). Kept so callers (the mirror, the 'c' key) stay simple."""
+        return
 
     # -- the solve ------------------------------------------------------------------
 
     def solve(self, world_landmarks: np.ndarray) -> np.ndarray:
-        targets = self._tip_targets(world_landmarks)
-        q = self.q.copy()
-        q_prev = self.q.copy()
-        w = np.sqrt(self.weights)
-        lam = np.sqrt(self.cfg.lam)
-        reg = np.sqrt(self.reg)
+        """Direct flexion mapping: drive each robot finger's flexion joints from
+        how curled the corresponding human finger is.
 
-        for _ in range(self.cfg.iters):
-            self._set_qpos(q)
-            rows_J, rows_r = [], []
-            for i, tid in enumerate(self.tip_ids):
-                mujoco.mj_jacSite(self.model, self.data, self._scratch_jac, None, tid)
-                res = self.data.site_xpos[tid] - targets[i]
-                rows_J.append(w[i] * self._scratch_jac[:, self.vadr])
-                rows_r.append(w[i] * res)
-            # Temporal smoothing toward the previous pose.
-            rows_J.append(lam * np.eye(self.n))
-            rows_r.append(lam * (q - q_prev))
-            # Neutral pull on the spread joints so fingers do not splay/cross.
-            rows_J.append(np.diag(reg))
-            rows_r.append(reg * q)
-
-            J = np.vstack(rows_J)
-            r = np.concatenate(rows_r)
-            JTJ = J.T @ J + self.cfg.damping * np.eye(self.n)
-            dq = np.linalg.solve(JTJ, -J.T @ r)
-            q = np.clip(q + dq, self.lo, self.hi)
-
-        self.q = q
-        return q.copy()
+        Cross-embodiment fingertip-position matching (a single rotation plus
+        scale) cannot align each finger's direction, giving splayed, non-monotonic
+        poses. Mapping the human finger bend straight onto the robot flexion range
+        is monotonic and robust: an open hand opens, a fist closes. Spread and
+        thumb-opposition joints are left neutral (no crossing, no fold).
+        """
+        q = np.zeros(self.n)
+        for fi, finger in enumerate(self.hand.fingers):
+            idxs, his = self._flex[fi]
+            if len(idxs) == 0:
+                continue
+            sum_hi = float(np.sum(his))
+            if sum_hi < 1e-6:
+                continue
+            bend = min(finger_bend(world_landmarks, finger.chain), sum_hi)
+            q[idxs] = bend * (his / sum_hi)   # distribute curl across the joints
+        q = np.clip(q, self.lo, self.hi)
+        self.q = self._beta * q + (1 - self._beta) * self.q
+        return self.q.copy()
 
     def reset(self) -> None:
         self.q = np.clip(np.zeros(self.n), self.lo, self.hi)

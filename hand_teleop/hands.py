@@ -28,6 +28,8 @@ class Finger:
     name: str
     tip_body: str
     landmark: int
+    chain: tuple            # landmark indices base->tip, e.g. index (5,6,7,8)
+    token: str              # substring identifying this finger's joints
     weight: float = 1.0
     tip_offset: tuple = (0.0, 0.0, 0.0)
 
@@ -58,10 +60,10 @@ LEAP = HandConfig(
     palm_body="palm",
     base_body="palm",
     fingers=[
-        Finger("index", "if_ds", LM_INDEX, tip_offset=(0, -0.03, 0.015)),
-        Finger("middle", "mf_ds", LM_MIDDLE, tip_offset=(0, -0.03, 0.015)),
-        Finger("ring", "rf_ds", LM_RING, tip_offset=(0, -0.03, 0.015)),
-        Finger("thumb", "th_ds", LM_THUMB, weight=1.2, tip_offset=(0, -0.045, -0.015)),
+        Finger("index", "if_ds", LM_INDEX, (5, 6, 7, 8), "if_", tip_offset=(0, -0.03, 0.015)),
+        Finger("middle", "mf_ds", LM_MIDDLE, (9, 10, 11, 12), "mf_", tip_offset=(0, -0.03, 0.015)),
+        Finger("ring", "rf_ds", LM_RING, (13, 14, 15, 16), "rf_", tip_offset=(0, -0.03, 0.015)),
+        Finger("thumb", "th_ds", LM_THUMB, (1, 2, 3, 4), "th_", tip_offset=(0, -0.045, -0.015)),
     ],
 )
 
@@ -77,15 +79,15 @@ ORCA = HandConfig(
     # on the joint pivot and the fingers cannot be driven to curl.
     fingers=[
         Finger("index", "right_I-FingerTipAssembly_ec49c16c", LM_INDEX,
-               tip_offset=(0, 0, 0.028)),
+               (5, 6, 7, 8), "_i-", tip_offset=(0, 0, 0.028)),
         Finger("middle", "right_M-FingerTipAssembly_34afb748", LM_MIDDLE,
-               tip_offset=(0, 0, 0.028)),
+               (9, 10, 11, 12), "_m-", tip_offset=(0, 0, 0.028)),
         Finger("ring", "right_M-FingerTipAssembly_424a8e75", LM_RING,
-               tip_offset=(0, 0, 0.028)),
+               (13, 14, 15, 16), "_r-", tip_offset=(0, 0, 0.028)),
         Finger("pinky", "right_P-FingerTipAssembly_cd219176", LM_PINKY,
-               tip_offset=(0, 0, 0.028)),
-        Finger("thumb", "right_T-DP_b7429e50", LM_THUMB, weight=0.5,
-               tip_offset=(0, 0, 0.028)),
+               (17, 18, 19, 20), "_p-", tip_offset=(0, 0, 0.028)),
+        Finger("thumb", "right_T-DP_b7429e50", LM_THUMB,
+               (1, 2, 3, 4), "_t-", weight=0.5, tip_offset=(0, 0, 0.028)),
     ],
     exclude_joints=("right_wrist",),
     # abd/rot: keep fingers from splaying. t-cmc: strong, or the thumb swings to

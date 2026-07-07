@@ -70,6 +70,26 @@ def hand_scale(world: np.ndarray) -> float:
     return float(np.linalg.norm(world[MIDDLE_MCP] - world[WRIST]))
 
 
+def finger_bend(world: np.ndarray, chain) -> float:
+    """Total flexion of a finger: the sum of bend angles (radians) along its
+    joints, wrist included as the metacarpal reference.
+
+    chain is the finger's landmark indices from base to tip, e.g. index is
+    (5, 6, 7, 8). A straight finger returns ~0; a curled one returns a few
+    radians. Intrinsic to the finger, so no calibration and no dependence on hand
+    size or wrist orientation.
+    """
+    pts = [world[WRIST]] + [world[i] for i in chain]
+    total = 0.0
+    for k in range(1, len(pts) - 1):
+        a = pts[k] - pts[k - 1]
+        b = pts[k + 1] - pts[k]
+        na, nb = np.linalg.norm(a), np.linalg.norm(b)
+        if na > 1e-6 and nb > 1e-6:
+            total += float(np.arccos(np.clip(np.dot(a, b) / (na * nb), -1.0, 1.0)))
+    return total
+
+
 def fingertip_vectors(world: np.ndarray, landmarks=FINGERTIP_LANDMARKS) -> np.ndarray:
     """(N, 3) scale-normalized fingertip vectors in the local hand frame.
 
