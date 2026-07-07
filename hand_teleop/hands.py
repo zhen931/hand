@@ -41,6 +41,11 @@ class HandConfig:
     fingers: list                   # list[Finger], canonical order
     exclude_joints: tuple = ()      # actuated joints not driven by retargeting
     palm_offset: tuple = (0.0, 0.0, 0.0)
+    # Substrings identifying side-to-side (abduction/spread) joints. These are
+    # regularized toward neutral so the solver does not splay/cross the fingers
+    # chasing the lateral spread of the human hand.
+    spread_tokens: tuple = ("abd", "rot")
+    spread_reg: float = 0.08
 
     @property
     def scene_path(self):
@@ -100,6 +105,7 @@ class ModelInfo:
     hi: np.ndarray
     landmarks: list
     weights: np.ndarray
+    reg: np.ndarray                 # per-joint pull toward neutral (spread joints)
     base_qadr: int | None = None
     base_vadr: int | None = None
 
@@ -133,7 +139,7 @@ def build_model(cfg: HandConfig, floating: bool = False):
     palm_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "palm_site")
 
     # Driven joints: every hinge joint except the excluded ones.
-    qadr, vadr, lo, hi = [], [], [], []
+    qadr, vadr, lo, hi, reg = [], [], [], [], []
     for j in range(model.njnt):
         if model.jnt_type[j] != mujoco.mjtJoint.mjJNT_HINGE:
             continue
@@ -144,6 +150,8 @@ def build_model(cfg: HandConfig, floating: bool = False):
         vadr.append(model.jnt_dofadr[j])
         lo.append(model.jnt_range[j, 0])
         hi.append(model.jnt_range[j, 1])
+        is_spread = any(tok in name for tok in cfg.spread_tokens)
+        reg.append(cfg.spread_reg if is_spread else 0.0)
 
     base_q = base_v = None
     if floating:
@@ -162,6 +170,7 @@ def build_model(cfg: HandConfig, floating: bool = False):
         hi=np.array(hi),
         landmarks=[f.landmark for f in cfg.fingers],
         weights=np.array([f.weight for f in cfg.fingers]),
+        reg=np.array(reg),
         base_qadr=base_q,
         base_vadr=base_v,
     )

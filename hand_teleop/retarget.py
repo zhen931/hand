@@ -54,6 +54,7 @@ class Retargeter:
         self.palm_id = self.info.palm_site_id
         self.landmarks = self.info.landmarks
         self.weights = self.info.weights
+        self.reg = self.info.reg          # per-joint pull toward neutral
         self.n = len(self.qadr)
 
         self.q = np.clip(np.zeros(self.n), self.lo, self.hi)
@@ -138,6 +139,7 @@ class Retargeter:
         q_prev = self.q.copy()
         w = np.sqrt(self.weights)
         lam = np.sqrt(self.cfg.lam)
+        reg = np.sqrt(self.reg)
 
         for _ in range(self.cfg.iters):
             self._set_qpos(q)
@@ -147,8 +149,12 @@ class Retargeter:
                 res = self.data.site_xpos[tid] - targets[i]
                 rows_J.append(w[i] * self._scratch_jac[:, self.vadr])
                 rows_r.append(w[i] * res)
+            # Temporal smoothing toward the previous pose.
             rows_J.append(lam * np.eye(self.n))
             rows_r.append(lam * (q - q_prev))
+            # Neutral pull on the spread joints so fingers do not splay/cross.
+            rows_J.append(np.diag(reg))
+            rows_r.append(reg * q)
 
             J = np.vstack(rows_J)
             r = np.concatenate(rows_r)
