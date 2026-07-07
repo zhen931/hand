@@ -56,7 +56,7 @@ def main():
     pid = info.palm_site_id
 
     print(f"== {cfg.name} orientation ==")
-    wrist = WristMapper(rest_pos, rest_quat, mode="orient", rot_alpha=1.0)
+    wrist = WristMapper(rest_pos, rest_quat, rt.align, mode="orient", rot_alpha=1.0)
     frames = synthetic.wrist_sweep(120, curl=0.2)
     wrist.calibrate(frames[0], None)
     quats = []
@@ -71,7 +71,8 @@ def main():
           f"({'MOVES' if spread > 0.05 else 'STATIC - PROBLEM'})")
 
     print(f"== {cfg.name} translation (full) ==")
-    wrist2 = WristMapper(rest_pos, rest_quat, mode="full", pos_alpha=1.0, rot_alpha=1.0)
+    wrist2 = WristMapper(rest_pos, rest_quat, rt.align, mode="full",
+                         pos_alpha=1.0, rot_alpha=1.0)
     base_world = synthetic.hand_pose(0.2)
     img_cal = np.zeros((21, 2), np.float32)
     img_cal[0] = [0.5, 0.5]

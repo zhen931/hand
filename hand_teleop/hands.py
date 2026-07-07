@@ -67,12 +67,20 @@ ORCA = HandConfig(
     scene="orca_hand/scene_right.xml",
     palm_body="right_R-Carpals_8d1f1041",
     base_body="right_mount",
+    # tip_offset pushes the site from the fingertip-link origin (at the knuckle)
+    # out to the actual tip, along the link's local +z. Without this the site sits
+    # on the joint pivot and the fingers cannot be driven to curl.
     fingers=[
-        Finger("index", "right_I-FingerTipAssembly_ec49c16c", LM_INDEX),
-        Finger("middle", "right_M-FingerTipAssembly_34afb748", LM_MIDDLE),
-        Finger("ring", "right_M-FingerTipAssembly_424a8e75", LM_RING),
-        Finger("pinky", "right_P-FingerTipAssembly_cd219176", LM_PINKY),
-        Finger("thumb", "right_T-DP_b7429e50", LM_THUMB, weight=1.2),
+        Finger("index", "right_I-FingerTipAssembly_ec49c16c", LM_INDEX,
+               tip_offset=(0, 0, 0.028)),
+        Finger("middle", "right_M-FingerTipAssembly_34afb748", LM_MIDDLE,
+               tip_offset=(0, 0, 0.028)),
+        Finger("ring", "right_M-FingerTipAssembly_424a8e75", LM_RING,
+               tip_offset=(0, 0, 0.028)),
+        Finger("pinky", "right_P-FingerTipAssembly_cd219176", LM_PINKY,
+               tip_offset=(0, 0, 0.028)),
+        Finger("thumb", "right_T-DP_b7429e50", LM_THUMB, weight=1.2,
+               tip_offset=(0, 0, 0.028)),
     ],
     exclude_joints=("right_wrist",),
 )

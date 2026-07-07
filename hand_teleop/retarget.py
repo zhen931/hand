@@ -26,7 +26,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from .hand_frame import fingertip_vectors
+from .hand_frame import fingertip_vectors, orient_normal
 from .hands import DEFAULT_HAND, HANDS, build_model
 
 
@@ -61,9 +61,14 @@ class Retargeter:
 
         # Robot reference geometry at the open pose (driven joints = 0).
         self._palm0, self._robot_open_vecs = self._robot_geometry(self.q)
+        # The mapping rotation is the robot's own hand frame (across, forward,
+        # normal). Building it from the orthonormal frame keeps the palm-normal
+        # (curl) axis well defined, unlike a Kabsch fit on the near-coplanar open
+        # fingertips. Human fingertip vectors arrive already in the human frame
+        # (see hand_frame.fingertip_vectors), so this rotation carries them into
+        # the robot frame directly and is invariant to wrist orientation.
+        self.align = self._robot_frame()
         self.scale = float(np.mean(np.linalg.norm(self._robot_open_vecs, axis=1)))
-        # Default mapping rotation; refined by calibrate(). Identity until then.
-        self.align = np.eye(3)
 
     # -- forward kinematics helpers -------------------------------------------------
 
@@ -78,6 +83,29 @@ class Retargeter:
         vecs = np.array([self.data.site_xpos[t] - palm for t in self.tip_ids])
         return palm, vecs
 
+    def _robot_frame(self) -> np.ndarray:
+        """Robot hand frame (across, forward, normal) as world-space columns.
+
+        Same construction as the human hand_local_frame, so the two frames are
+        directly comparable: across from the outer non-thumb fingertips, forward
+        from palm to the fingertip centroid, normal from their cross product.
+        """
+        r = self._robot_open_vecs
+        names = [f.name for f in self.hand.fingers]
+        nz = [i for i, n in enumerate(names) if n != "thumb"]
+
+        def unit(v):
+            n = np.linalg.norm(v)
+            return v / n if n > 1e-9 else v
+
+        across = unit(r[nz[-1]] - r[nz[0]])
+        forward = unit(r.mean(axis=0))
+        normal = unit(np.cross(across, forward))
+        across = unit(np.cross(forward, normal))
+        thumb_idx = names.index("thumb")
+        across, forward, normal = orient_normal(across, forward, normal, r[thumb_idx])
+        return np.column_stack([across, forward, normal])
+
     def _tip_targets(self, world_landmarks: np.ndarray) -> np.ndarray:
         u = fingertip_vectors(world_landmarks, self.landmarks)   # (N, 3)
         mapped = (self.align @ u.T).T * self.scale
@@ -86,14 +114,21 @@ class Retargeter:
     # -- calibration ----------------------------------------------------------------
 
     def calibrate(self, world_landmarks: np.ndarray) -> None:
-        """Snap the align rotation + scale to a captured open-hand pose (Kabsch)."""
+        """Fit the mapping scale from an open-hand pose.
+
+        The rotation is fixed (the robot frame, see __init__); calibration only
+        sets the scale that maps the operator's open hand onto the robot's open
+        hand. This is essential: without it the human wrist-to-tip vectors (long)
+        overshoot the robot's palm-to-tip reach (short), pinning the fingers
+        extended so they barely curl. Optimal scale for fixed rotation is
+        <r, R u> / <R u, R u>.
+        """
         u = fingertip_vectors(world_landmarks, self.landmarks)
         r = self._robot_open_vecs
-        H = u.T @ r
-        U, _, Vt = np.linalg.svd(H)
-        d = np.sign(np.linalg.det(Vt.T @ U.T))
-        self.align = Vt.T @ np.diag([1.0, 1.0, d]) @ U.T
-        self.scale = float(np.mean(np.linalg.norm(r, axis=1)))
+        Ru = (self.align @ u.T).T
+        denom = float(np.sum(Ru * Ru))
+        if denom > 1e-9:
+            self.scale = float(np.sum(r * Ru) / denom)
 
     # -- the solve ------------------------------------------------------------------
 

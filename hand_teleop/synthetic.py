@@ -35,12 +35,16 @@ def _rot_x(theta: float) -> np.ndarray:
 
 
 def _finger_points(mcp: np.ndarray, segs, curl: float) -> np.ndarray:
-    """Three joint points + tip along an arc that bends into the palm (-z)."""
+    """Three joint points + tip along an arc that bends into the palm (+z).
+
+    Per-joint bends are capped so a full curl (curl=1) lands the fingertip near
+    the palm like a real fist, rather than over-rotating past it.
+    """
     forward = np.array([0.0, 1.0, 0.0])
-    max_bend = np.deg2rad(85.0) * curl
+    max_bend = np.deg2rad(55.0) * curl
     pts, p, ang = [], mcp.copy(), 0.0
     for i, L in enumerate(segs):
-        ang += max_bend if i == 0 else max_bend * 0.9
+        ang += max_bend if i == 0 else max_bend * 0.8
         direction = _rot_x(ang) @ forward
         p = p + L * direction
         pts.append(p.copy())

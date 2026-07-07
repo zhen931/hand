@@ -71,7 +71,7 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
     fq = info.finger_qadr
     rest_pos = model.qpos0[base_q:base_q + 3].copy()
     rest_quat = model.qpos0[base_q + 3:base_q + 7].copy()
-    wrist = WristMapper(rest_pos, rest_quat, mode=wrist_mode)
+    wrist = WristMapper(rest_pos, rest_quat, rt.align, mode=wrist_mode)
     base_pos, base_quat = rest_pos.copy(), rest_quat.copy()
 
     receiver = gen = None
@@ -85,8 +85,10 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
             return receiver.latest()
         return next(gen)
 
-    # Optional one-shot calibration on the first well-tracked frame.
+    # Optional one-shot calibration on the first well-tracked frame. Pressing 'c'
+    # in the viewer re-arms it (re-snap the open-hand scale and translation zero).
     calibrated = not calibrate_first
+    recal = {"pending": False}
 
     lat = deque(maxlen=120)
 
@@ -103,7 +105,18 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
     viewer = None
     if not headless:
         from mujoco import viewer as mj_viewer
-        viewer = mj_viewer.launch_passive(model, data)
+
+        def key_callback(keycode):
+            if keycode in (ord("C"), ord("c")):
+                recal["pending"] = True
+
+        viewer = mj_viewer.launch_passive(model, data, key_callback=key_callback)
+        # Front view matching the MediaPipe-to-world mapping, so the robot reads
+        # as a mirror of the hand. The user can still orbit freely.
+        viewer.cam.lookat[:] = model.stat.center
+        viewer.cam.distance = 1.4 * model.stat.extent
+        viewer.cam.azimuth = 90
+        viewer.cam.elevation = -12
 
     print(f"[mirror] hand={cfg.name} source={source} "
           f"calibrate_first={calibrate_first} wrist={wrist_mode}")
@@ -113,11 +126,13 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
         for _ in loop:
             frame = next_frame()
             if frame is not None:
+                if recal["pending"]:
+                    calibrated, recal["pending"] = False, False
                 if not calibrated and frame.tracked and frame.confidence >= 0.5:
                     rt.calibrate(frame.world)
                     wrist.calibrate(frame.world, frame.image)
                     calibrated = True
-                    print("[mirror] calibrated on first tracked frame")
+                    print("[mirror] calibrated (hold an open, neutral hand; press c to redo)")
                 world, frozen = smoother.update(frame)
                 if world is not None:
                     rt.solve(world)

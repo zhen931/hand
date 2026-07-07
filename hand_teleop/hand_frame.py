@@ -32,20 +32,36 @@ def _normalize(v: np.ndarray) -> np.ndarray:
     return v / n if n > 1e-9 else v
 
 
+def orient_normal(across, forward, normal, thumb_vec):
+    """Flip the normal so the thumb sits on a consistent (palmar) side.
+
+    The four fingers are nearly coplanar, so the sign of the palm normal is
+    otherwise ambiguous and can point either way depending on pose. The thumb is
+    off that plane, so we use it to pin the normal direction. Flipping the normal
+    also flips across to keep the frame right-handed; that across flip cancels out
+    in the retargeting mapping, but the normal fix is what makes curl consistent
+    between the human hand and any robot hand.
+    """
+    if np.dot(thumb_vec, normal) > 0:
+        normal = -normal
+        across = _normalize(np.cross(forward, normal))
+    return across, forward, normal
+
+
 def hand_local_frame(world: np.ndarray) -> np.ndarray:
     """Return a 3x3 rotation whose columns are the local hand axes in world space.
 
-    x: across the palm, from the index side toward the pinky side
-    y: along the fingers, from wrist toward the knuckles
-    z: palm normal (x cross y)
+    x: across the palm (index toward pinky), y: along the fingers, z: palm normal,
+    with the normal oriented via the thumb so its sign is pose-independent.
     """
     wrist = world[WRIST]
     across = _normalize(world[PINKY_MCP] - world[INDEX_MCP])
     knuckles = 0.5 * (world[INDEX_MCP] + world[PINKY_MCP])
     forward = _normalize(knuckles - wrist)
     normal = _normalize(np.cross(across, forward))
-    # Re-orthogonalize so the frame is exactly orthonormal.
     across = _normalize(np.cross(forward, normal))
+    across, forward, normal = orient_normal(across, forward, normal,
+                                            world[THUMB_TIP] - wrist)
     return np.column_stack([across, forward, normal])
 
 
