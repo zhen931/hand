@@ -75,6 +75,8 @@ class Retargeter:
         self._spread_open = np.zeros(nfing)
         self._bend_gain = np.array([f.bend_gain for f in self.hand.fingers])
         self._lat_gain = np.array([f.lat_gain for f in self.hand.fingers])
+        self._lat_cap = np.array([f.lat_cap for f in self.hand.fingers])
+        self._lat_bias = np.array([f.lat_bias for f in self.hand.fingers])
 
         self.q = np.clip(np.zeros(self.n), self.lo, self.hi)
         self._scratch_jac = np.zeros((3, self.model.nv))
@@ -206,11 +208,13 @@ class Retargeter:
                 bend = finger_bend(world_landmarks, finger.chain)
                 curl = (bend - self._bend_open[fi]) * self._bend_gain[fi]
                 q[idxs] = float(np.clip(curl, 0.0, sum_hi)) * (his / sum_hi)
-            # Abduction: sideways spread relative to the neutral baseline.
+            # Abduction: sideways spread relative to the neutral baseline, capped
+            # well inside the joint limits so fingers fan but never cross.
             lat = self._lat[fi]
             if len(lat):
                 spread = finger_lateral(world_landmarks, finger.chain, R)
                 a = (spread - self._spread_open[fi]) * self._lat_gain[fi] * self.lat_sign
+                a = self._lat_bias[fi] + np.clip(a, -self._lat_cap[fi], self._lat_cap[fi])
                 q[lat] = np.clip(a, self.lo[lat], self.hi[lat])
         q = np.clip(q, self.lo, self.hi)
         self.q = self._beta * q + (1 - self._beta) * self.q
