@@ -31,6 +31,7 @@ class Finger:
     chain: tuple            # landmark indices base->tip, e.g. index (5,6,7,8)
     token: str              # substring identifying this finger's joints
     weight: float = 1.0
+    bend_gain: float = 1.0  # amplify bend->curl (thumb needs more)
     tip_offset: tuple = (0.0, 0.0, 0.0)
 
 
@@ -87,7 +88,8 @@ ORCA = HandConfig(
         Finger("pinky", "right_P-FingerTipAssembly_cd219176", LM_PINKY,
                (17, 18, 19, 20), "_p-", tip_offset=(0, 0, 0.028)),
         Finger("thumb", "right_T-DP_b7429e50", LM_THUMB,
-               (1, 2, 3, 4), "_t-", weight=0.5, tip_offset=(0, 0, 0.028)),
+               (1, 2, 3, 4), "_t-", weight=0.5, bend_gain=2.0,
+               tip_offset=(0, 0, 0.028)),
     ],
     exclude_joints=("right_wrist",),
     # abd/rot: keep fingers from splaying. t-cmc: strong, or the thumb swings to

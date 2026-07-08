@@ -51,8 +51,11 @@ def orient_normal(across, forward, normal, thumb_vec):
 def hand_local_frame(world: np.ndarray) -> np.ndarray:
     """Return a 3x3 rotation whose columns are the local hand axes in world space.
 
-    x: across the palm (index toward pinky), y: along the fingers, z: palm normal,
-    with the normal oriented via the thumb so its sign is pose-independent.
+    x: across the palm (index toward pinky), y: along the fingers, z: palm normal.
+    Built only from the wrist and the index/pinky knuckles, all stable landmarks,
+    so it does NOT depend on the thumb: moving the thumb must not move the wrist.
+    The normal sign is deterministic (across x forward) and consistent frame to
+    frame; any absolute palm-facing offset is handled once by the wrist flip.
     """
     wrist = world[WRIST]
     across = _normalize(world[PINKY_MCP] - world[INDEX_MCP])
@@ -60,8 +63,6 @@ def hand_local_frame(world: np.ndarray) -> np.ndarray:
     forward = _normalize(knuckles - wrist)
     normal = _normalize(np.cross(across, forward))
     across = _normalize(np.cross(forward, normal))
-    across, forward, normal = orient_normal(across, forward, normal,
-                                            world[THUMB_TIP] - wrist)
     return np.column_stack([across, forward, normal])
 
 

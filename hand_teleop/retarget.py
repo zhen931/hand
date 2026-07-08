@@ -29,7 +29,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from .hand_frame import finger_bend, fingertip_vectors, orient_normal
+from .hand_frame import finger_bend, fingertip_vectors
 from .hands import DEFAULT_HAND, HANDS, build_model
 
 
@@ -64,6 +64,13 @@ class Retargeter:
         self._names = self._joint_names()
         self._flex = self._flex_groups()
         self._beta = 0.6                  # joint-space temporal smoothing
+        # Bend at a relaxed open hand is not zero (fingers curve slightly, plus
+        # tracking noise), so subtract a per-finger open baseline; press 'c' with a
+        # flat hand to set it. Per-finger gain amplifies the thumb, whose usable
+        # bend range is smaller than the fingers'.
+        self._bend_open = np.array([0.35] * len(self.hand.fingers))
+        self._bend_gain = np.array([getattr(f, "bend_gain", 1.0)
+                                    for f in self.hand.fingers])
 
         self.q = np.clip(np.zeros(self.n), self.lo, self.hi)
         self._scratch_jac = np.zeros((3, self.model.nv))
@@ -114,8 +121,9 @@ class Retargeter:
         forward = unit(r.mean(axis=0))
         normal = unit(np.cross(across, forward))
         across = unit(np.cross(forward, normal))
-        thumb_idx = names.index("thumb")
-        across, forward, normal = orient_normal(across, forward, normal, r[thumb_idx])
+        # No thumb-based normal flip here, to match hand_local_frame (which drops
+        # it so the thumb cannot move the wrist). Both use the same raw rule, so
+        # the mapping stays consistent.
         return np.column_stack([across, forward, normal])
 
     def _joint_names(self):
@@ -151,9 +159,11 @@ class Retargeter:
     # -- calibration ----------------------------------------------------------------
 
     def calibrate(self, world_landmarks: np.ndarray) -> None:
-        """No-op. Flexion mapping is calibration-free (bend angles are intrinsic
-        to the hand). Kept so callers (the mirror, the 'c' key) stay simple."""
-        return
+        """Record each finger's bend at this (open) pose as the extension baseline,
+        so a fully open hand drives the robot fingers fully open. Hold a flat hand
+        and press 'c'."""
+        self._bend_open = np.array([
+            finger_bend(world_landmarks, f.chain) for f in self.hand.fingers])
 
     # -- the solve ------------------------------------------------------------------
 
@@ -175,8 +185,10 @@ class Retargeter:
             sum_hi = float(np.sum(his))
             if sum_hi < 1e-6:
                 continue
-            bend = min(finger_bend(world_landmarks, finger.chain), sum_hi)
-            q[idxs] = bend * (his / sum_hi)   # distribute curl across the joints
+            bend = finger_bend(world_landmarks, finger.chain)
+            curl = (bend - self._bend_open[fi]) * self._bend_gain[fi]
+            curl = float(np.clip(curl, 0.0, sum_hi))
+            q[idxs] = curl * (his / sum_hi)   # distribute curl across the joints
         q = np.clip(q, self.lo, self.hi)
         self.q = self._beta * q + (1 - self._beta) * self.q
         return self.q.copy()
