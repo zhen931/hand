@@ -66,14 +66,18 @@ def _draw_overlay(cv2, bgr, image_lm, w, h):
         cv2.circle(bgr, p, 3, (0, 0, 255), -1)
 
 
-def _draw_arm(cv2, bgr, pose_lm, w, h):
+def _draw_arm(cv2, bgr, pose_lm, w, h, vis_thresh=0.6):
+    def vis(i):
+        return pose_lm[i][2] >= vis_thresh
     for a, b in ARM_CONNECTIONS:
-        pa = (int(pose_lm[a][0] * w), int(pose_lm[a][1] * h))
-        pb = (int(pose_lm[b][0] * w), int(pose_lm[b][1] * h))
-        cv2.line(bgr, pa, pb, (255, 170, 0), 3)
+        if vis(a) and vis(b):
+            pa = (int(pose_lm[a][0] * w), int(pose_lm[a][1] * h))
+            pb = (int(pose_lm[b][0] * w), int(pose_lm[b][1] * h))
+            cv2.line(bgr, pa, pb, (255, 170, 0), 3)
     for i in ARM_LANDMARKS:
-        p = (int(pose_lm[i][0] * w), int(pose_lm[i][1] * h))
-        cv2.circle(bgr, p, 6, (255, 90, 0), -1)
+        if vis(i):
+            p = (int(pose_lm[i][0] * w), int(pose_lm[i][1] * h))
+            cv2.circle(bgr, p, 6, (255, 90, 0), -1)
 
 
 def _run_live(sender: KeypointSender, camera: int, width: int, height: int,
@@ -120,6 +124,7 @@ def _run_live(sender: KeypointSender, camera: int, width: int, height: int,
 
     fid, last_world, last_image = 0, np.zeros((21, 3), np.float32), np.zeros((21, 2), np.float32)
     ema_dt = None
+    arm_ema = None
     t_start = time.time()
     while True:
         ok, bgr = cap.read()
@@ -157,7 +162,14 @@ def _run_live(sender: KeypointSender, camera: int, width: int, height: int,
         if pose_landmarker is not None:
             pres = pose_landmarker.detect_for_video(mp_image, ts_ms)
             if pres.pose_landmarks:
-                arm_pts = [(p.x, p.y) for p in pres.pose_landmarks[0]]
+                raw = np.array([[p.x, p.y, p.visibility]
+                                for p in pres.pose_landmarks[0]], dtype=np.float32)
+                if arm_ema is None:
+                    arm_ema = raw
+                else:
+                    arm_ema[:, :2] = 0.4 * raw[:, :2] + 0.6 * arm_ema[:, :2]
+                    arm_ema[:, 2] = raw[:, 2]      # keep raw visibility for gating
+                arm_pts = arm_ema
 
         dt = time.time() - t_cap
         ema_dt = dt if ema_dt is None else 0.9 * ema_dt + 0.1 * dt
