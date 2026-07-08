@@ -66,7 +66,7 @@ class Retargeter:
         self._flex = self._flex_groups()
         self._lat = self._lateral_groups()
         self._beta = 0.6                  # joint-space temporal smoothing
-        self.lat_sign = 1.0               # flip if fingers spread the wrong way
+        self.lat_sign = -1.0              # spread direction; flip with 'l' if wrong
         nfing = len(self.hand.fingers)
         # Bend/spread at a relaxed open hand are not zero (fingers curve and fan
         # slightly, plus tracking noise), so subtract per-finger open baselines;

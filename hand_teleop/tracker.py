@@ -3,6 +3,7 @@
 Run:
     python -m hand_teleop.tracker                 # live webcam
     python -m hand_teleop.tracker --show          # with an on-screen overlay
+    python -m hand_teleop.tracker --show --arm    # also draw the arm (pose model)
     python -m hand_teleop.tracker --synthetic     # no camera, streams a test sweep
 
 t_capture is stamped immediately after the camera read so downstream latency
@@ -20,6 +21,7 @@ from . import ASSETS_DIR
 from .protocol import DEFAULT_PORT, RIGHT, LEFT, KeypointFrame, KeypointSender
 
 HAND_MODEL = ASSETS_DIR / "models" / "hand_landmarker.task"
+POSE_MODEL = ASSETS_DIR / "models" / "pose_landmarker_lite.task"
 
 # 21-point MediaPipe hand skeleton, for the manual overlay.
 HAND_CONNECTIONS = [
@@ -29,6 +31,10 @@ HAND_CONNECTIONS = [
     (9, 13), (13, 14), (14, 15), (15, 16),   # ring
     (13, 17), (0, 17), (17, 18), (18, 19), (19, 20),  # pinky + palm
 ]
+
+# MediaPipe Pose arm landmarks: shoulders, elbows, wrists (both arms).
+ARM_LANDMARKS = (11, 12, 13, 14, 15, 16)
+ARM_CONNECTIONS = [(11, 13), (13, 15), (12, 14), (14, 16), (11, 12)]
 
 
 def _run_synthetic(sender: KeypointSender, fps: float) -> None:
@@ -60,8 +66,18 @@ def _draw_overlay(cv2, bgr, image_lm, w, h):
         cv2.circle(bgr, p, 3, (0, 0, 255), -1)
 
 
+def _draw_arm(cv2, bgr, pose_lm, w, h):
+    for a, b in ARM_CONNECTIONS:
+        pa = (int(pose_lm[a][0] * w), int(pose_lm[a][1] * h))
+        pb = (int(pose_lm[b][0] * w), int(pose_lm[b][1] * h))
+        cv2.line(bgr, pa, pb, (255, 170, 0), 3)
+    for i in ARM_LANDMARKS:
+        p = (int(pose_lm[i][0] * w), int(pose_lm[i][1] * h))
+        cv2.circle(bgr, p, 6, (255, 90, 0), -1)
+
+
 def _run_live(sender: KeypointSender, camera: int, width: int, height: int,
-              want_fps: int, show: bool, mirror: bool) -> None:
+              want_fps: int, show: bool, mirror: bool, arm: bool = False) -> None:
     import cv2
     import mediapipe as mp
     from mediapipe.tasks import python as mp_python
@@ -71,6 +87,16 @@ def _run_live(sender: KeypointSender, camera: int, width: int, height: int,
         raise FileNotFoundError(
             f"hand model missing: {HAND_MODEL}\n"
             "download it once with tools/get_model.py")
+
+    pose_landmarker = None
+    if arm:
+        if not POSE_MODEL.exists():
+            raise FileNotFoundError(
+                f"pose model missing: {POSE_MODEL}\nrun tools/get_model.py")
+        pose_landmarker = mp_vision.PoseLandmarker.create_from_options(
+            mp_vision.PoseLandmarkerOptions(
+                base_options=mp_python.BaseOptions(model_asset_path=str(POSE_MODEL)),
+                num_poses=1, running_mode=mp_vision.RunningMode.VIDEO))
 
     cap = cv2.VideoCapture(camera, cv2.CAP_DSHOW)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
@@ -127,9 +153,17 @@ def _run_live(sender: KeypointSender, camera: int, width: int, height: int,
         ))
         fid += 1
 
+        arm_pts = None
+        if pose_landmarker is not None:
+            pres = pose_landmarker.detect_for_video(mp_image, ts_ms)
+            if pres.pose_landmarks:
+                arm_pts = [(p.x, p.y) for p in pres.pose_landmarks[0]]
+
         dt = time.time() - t_cap
         ema_dt = dt if ema_dt is None else 0.9 * ema_dt + 0.1 * dt
         if show:
+            if arm_pts is not None:
+                _draw_arm(cv2, bgr, arm_pts, w, h)
             if tracked:
                 _draw_overlay(cv2, bgr, last_image, w, h)
             cv2.putText(bgr, f"proc {ema_dt*1000:4.0f} ms  conf {conf:.2f}  "
@@ -156,6 +190,8 @@ def main() -> None:
     ap.add_argument("--no-mirror", dest="mirror", action="store_false",
                     help="do not horizontally flip the camera image")
     ap.add_argument("--synthetic", action="store_true", help="stream a synthetic sweep")
+    ap.add_argument("--arm", action="store_true",
+                    help="also detect and draw the arm (shoulder/elbow/wrist) via pose")
     args = ap.parse_args()
 
     sender = KeypointSender(args.host, args.port)
@@ -164,7 +200,7 @@ def main() -> None:
             _run_synthetic(sender, fps=args.fps)
         else:
             _run_live(sender, args.camera, args.width, args.height,
-                      args.fps, args.show, args.mirror)
+                      args.fps, args.show, args.mirror, arm=args.arm)
     except KeyboardInterrupt:
         pass
     finally:

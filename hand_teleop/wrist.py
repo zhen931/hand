@@ -53,7 +53,7 @@ def _nlerp(q0: np.ndarray, q1: np.ndarray, a: float) -> np.ndarray:
 
 class WristMapper:
     def __init__(self, rest_pos, rest_quat, robot_frame, mode="orient",
-                 mp_to_world=MEDIAPIPE_TO_MUJOCO, flip=True,
+                 mp_to_world=MEDIAPIPE_TO_MUJOCO, flip=False,
                  xy_gain=0.18, z_gain=0.30, pos_alpha=0.6, rot_alpha=0.7):
         self.rest_pos = np.asarray(rest_pos, dtype=np.float64).copy()
         self.rest_quat = np.asarray(rest_quat, dtype=np.float64).copy()
