@@ -115,6 +115,9 @@ def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
             elif keycode in (ord("G"), ord("g")):
                 wrist.mirror = not wrist.mirror
                 print(f"[mirror] wrist twist-mirror = {wrist.mirror}")
+            elif keycode in (ord("L"), ord("l")):
+                rt.lat_sign = -rt.lat_sign
+                print(f"[mirror] finger spread sign = {rt.lat_sign:+.0f}")
 
         viewer = mj_viewer.launch_passive(model, data, key_callback=key_callback)
         # Front view matching the MediaPipe-to-world mapping, so the robot reads

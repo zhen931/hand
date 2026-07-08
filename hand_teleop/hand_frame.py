@@ -91,6 +91,24 @@ def finger_bend(world: np.ndarray, chain) -> float:
     return total
 
 
+def finger_lateral(world: np.ndarray, chain, R: np.ndarray) -> float:
+    """Signed sideways angle (radians) of a finger within the palm plane.
+
+    Uses the proximal segment direction (base to next joint) expressed in the hand
+    frame R (columns across, forward, normal): the angle from 'forward' toward
+    'across'. A finger pointing straight down the hand gives ~0; spreading toward
+    the thumb or pinky gives a signed deviation. Drives the abduction joints.
+    """
+    base = world[chain[0]]
+    nxt = world[chain[1]]
+    d = nxt - base
+    n = np.linalg.norm(d)
+    if n < 1e-6:
+        return 0.0
+    d = d / n
+    return float(np.arctan2(float(d @ R[:, 0]), float(d @ R[:, 1])))
+
+
 def fingertip_vectors(world: np.ndarray, landmarks=FINGERTIP_LANDMARKS) -> np.ndarray:
     """(N, 3) scale-normalized fingertip vectors in the local hand frame.
 

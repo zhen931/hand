@@ -29,7 +29,8 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from .hand_frame import finger_bend, fingertip_vectors
+from .hand_frame import (finger_bend, finger_lateral, fingertip_vectors,
+                        hand_local_frame)
 from .hands import DEFAULT_HAND, HANDS, build_model
 
 
@@ -60,17 +61,20 @@ class Retargeter:
         self.reg = self.info.reg          # per-joint pull toward neutral
         self.n = len(self.qadr)
 
-        # Per-finger flexion joints, for the direct flexion mapping in solve().
+        # Per-finger flexion and abduction joints, for the direct mapping in solve.
         self._names = self._joint_names()
         self._flex = self._flex_groups()
+        self._lat = self._lateral_groups()
         self._beta = 0.6                  # joint-space temporal smoothing
-        # Bend at a relaxed open hand is not zero (fingers curve slightly, plus
-        # tracking noise), so subtract a per-finger open baseline; press 'c' with a
-        # flat hand to set it. Per-finger gain amplifies the thumb, whose usable
-        # bend range is smaller than the fingers'.
-        self._bend_open = np.array([0.35] * len(self.hand.fingers))
-        self._bend_gain = np.array([getattr(f, "bend_gain", 1.0)
-                                    for f in self.hand.fingers])
+        self.lat_sign = 1.0               # flip if fingers spread the wrong way
+        nfing = len(self.hand.fingers)
+        # Bend/spread at a relaxed open hand are not zero (fingers curve and fan
+        # slightly, plus tracking noise), so subtract per-finger open baselines;
+        # press 'c' with a flat hand to set them. Gains amplify to full range.
+        self._bend_open = np.array([0.35] * nfing)
+        self._spread_open = np.zeros(nfing)
+        self._bend_gain = np.array([f.bend_gain for f in self.hand.fingers])
+        self._lat_gain = np.array([f.lat_gain for f in self.hand.fingers])
 
         self.q = np.clip(np.zeros(self.n), self.lo, self.hi)
         self._scratch_jac = np.zeros((3, self.model.nv))
@@ -151,6 +155,18 @@ class Retargeter:
             groups.append((np.array(idxs, dtype=int), np.array(his)))
         return groups
 
+    def _lateral_groups(self):
+        """For each finger, the indices of its sideways (abduction / thumb
+        opposition) joints, driven from the human finger's spread."""
+        groups = []
+        for finger in self.hand.fingers:
+            idxs = []
+            for i, nm in enumerate(self._names):
+                if finger.token in nm and any(t in nm for t in ("abd", "rot", "cmc")):
+                    idxs.append(i)
+            groups.append(np.array(idxs, dtype=int))
+        return groups
+
     def _tip_targets(self, world_landmarks: np.ndarray) -> np.ndarray:
         u = fingertip_vectors(world_landmarks, self.landmarks)   # (N, 3)
         mapped = (self.align @ u.T).T * self.scale[:, None]
@@ -159,11 +175,14 @@ class Retargeter:
     # -- calibration ----------------------------------------------------------------
 
     def calibrate(self, world_landmarks: np.ndarray) -> None:
-        """Record each finger's bend at this (open) pose as the extension baseline,
-        so a fully open hand drives the robot fingers fully open. Hold a flat hand
-        and press 'c'."""
+        """Record each finger's bend and spread at this (open, neutral) pose as the
+        baselines, so a fully open hand drives the robot fingers fully open and a
+        neutral spread reads as zero abduction. Hold a flat hand and press 'c'."""
+        R = hand_local_frame(world_landmarks)
         self._bend_open = np.array([
             finger_bend(world_landmarks, f.chain) for f in self.hand.fingers])
+        self._spread_open = np.array([
+            finger_lateral(world_landmarks, f.chain, R) for f in self.hand.fingers])
 
     # -- the solve ------------------------------------------------------------------
 
@@ -178,17 +197,21 @@ class Retargeter:
         thumb-opposition joints are left neutral (no crossing, no fold).
         """
         q = np.zeros(self.n)
+        R = hand_local_frame(world_landmarks)
         for fi, finger in enumerate(self.hand.fingers):
+            # Flexion: distribute the finger's curl across its flexion joints.
             idxs, his = self._flex[fi]
-            if len(idxs) == 0:
-                continue
             sum_hi = float(np.sum(his))
-            if sum_hi < 1e-6:
-                continue
-            bend = finger_bend(world_landmarks, finger.chain)
-            curl = (bend - self._bend_open[fi]) * self._bend_gain[fi]
-            curl = float(np.clip(curl, 0.0, sum_hi))
-            q[idxs] = curl * (his / sum_hi)   # distribute curl across the joints
+            if len(idxs) and sum_hi > 1e-6:
+                bend = finger_bend(world_landmarks, finger.chain)
+                curl = (bend - self._bend_open[fi]) * self._bend_gain[fi]
+                q[idxs] = float(np.clip(curl, 0.0, sum_hi)) * (his / sum_hi)
+            # Abduction: sideways spread relative to the neutral baseline.
+            lat = self._lat[fi]
+            if len(lat):
+                spread = finger_lateral(world_landmarks, finger.chain, R)
+                a = (spread - self._spread_open[fi]) * self._lat_gain[fi] * self.lat_sign
+                q[lat] = np.clip(a, self.lo[lat], self.hi[lat])
         q = np.clip(q, self.lo, self.hi)
         self.q = self._beta * q + (1 - self._beta) * self.q
         return self.q.copy()
