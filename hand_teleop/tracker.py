@@ -32,9 +32,11 @@ HAND_CONNECTIONS = [
     (13, 17), (0, 17), (17, 18), (18, 19), (19, 20),  # pinky + palm
 ]
 
-# MediaPipe Pose arm landmarks: shoulders, elbows, wrists (both arms).
-ARM_LANDMARKS = (11, 12, 13, 14, 15, 16)
-ARM_CONNECTIONS = [(11, 13), (13, 15), (12, 14), (14, 16), (11, 12)]
+# MediaPipe Pose arm landmarks, per side: shoulder, elbow, wrist.
+ARM_SIDES = {
+    "left": {"points": (11, 13, 15), "connections": [(11, 13), (13, 15)]},
+    "right": {"points": (12, 14, 16), "connections": [(12, 14), (14, 16)]},
+}
 
 
 def _run_synthetic(sender: KeypointSender, fps: float) -> None:
@@ -66,15 +68,25 @@ def _draw_overlay(cv2, bgr, image_lm, w, h):
         cv2.circle(bgr, p, 3, (0, 0, 255), -1)
 
 
-def _draw_arm(cv2, bgr, pose_lm, w, h, vis_thresh=0.6):
+def _draw_arm(cv2, bgr, pose_lm, w, h, hand_wrist=None, vis_thresh=0.6):
+    """Draw only the arm attached to the tracked hand (its wrist is nearest the
+    hand's wrist), so the overlay does not jump across to the other arm."""
+    if hand_wrist is not None:
+        dl = abs(pose_lm[15][0] - hand_wrist[0]) + abs(pose_lm[15][1] - hand_wrist[1])
+        dr = abs(pose_lm[16][0] - hand_wrist[0]) + abs(pose_lm[16][1] - hand_wrist[1])
+        side = "left" if dl <= dr else "right"
+    else:
+        side = "left" if pose_lm[15][2] >= pose_lm[16][2] else "right"
+    spec = ARM_SIDES[side]
+
     def vis(i):
         return pose_lm[i][2] >= vis_thresh
-    for a, b in ARM_CONNECTIONS:
+    for a, b in spec["connections"]:
         if vis(a) and vis(b):
             pa = (int(pose_lm[a][0] * w), int(pose_lm[a][1] * h))
             pb = (int(pose_lm[b][0] * w), int(pose_lm[b][1] * h))
             cv2.line(bgr, pa, pb, (255, 170, 0), 3)
-    for i in ARM_LANDMARKS:
+    for i in spec["points"]:
         if vis(i):
             p = (int(pose_lm[i][0] * w), int(pose_lm[i][1] * h))
             cv2.circle(bgr, p, 6, (255, 90, 0), -1)
@@ -175,7 +187,8 @@ def _run_live(sender: KeypointSender, camera: int, width: int, height: int,
         ema_dt = dt if ema_dt is None else 0.9 * ema_dt + 0.1 * dt
         if show:
             if arm_pts is not None:
-                _draw_arm(cv2, bgr, arm_pts, w, h)
+                hand_wrist = last_image[0] if tracked else None
+                _draw_arm(cv2, bgr, arm_pts, w, h, hand_wrist=hand_wrist)
             if tracked:
                 _draw_overlay(cv2, bgr, last_image, w, h)
             cv2.putText(bgr, f"proc {ema_dt*1000:4.0f} ms  conf {conf:.2f}  "

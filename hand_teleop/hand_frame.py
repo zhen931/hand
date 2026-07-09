@@ -71,7 +71,7 @@ def hand_scale(world: np.ndarray) -> float:
     return float(np.linalg.norm(world[MIDDLE_MCP] - world[WRIST]))
 
 
-def finger_bend(world: np.ndarray, chain) -> float:
+def finger_bend(world: np.ndarray, chain, skip_base: bool = False) -> float:
     """Total flexion of a finger: the sum of bend angles (radians) along its
     joints, wrist included as the metacarpal reference.
 
@@ -79,10 +79,15 @@ def finger_bend(world: np.ndarray, chain) -> float:
     (5, 6, 7, 8). A straight finger returns ~0; a curled one returns a few
     radians. Intrinsic to the finger, so no calibration and no dependence on hand
     size or wrist orientation.
+
+    skip_base drops the first joint's angle. For the thumb that first angle is the
+    carpometacarpal position (how the thumb is splayed), not flexion, and it would
+    otherwise make the thumb curl as it changes position.
     """
     pts = [world[WRIST]] + [world[i] for i in chain]
     total = 0.0
-    for k in range(1, len(pts) - 1):
+    start = 2 if skip_base else 1
+    for k in range(start, len(pts) - 1):
         a = pts[k] - pts[k - 1]
         b = pts[k + 1] - pts[k]
         na, nb = np.linalg.norm(a), np.linalg.norm(b)

@@ -182,7 +182,8 @@ class Retargeter:
         neutral spread reads as zero abduction. Hold a flat hand and press 'c'."""
         R = hand_local_frame(world_landmarks)
         self._bend_open = np.array([
-            finger_bend(world_landmarks, f.chain) for f in self.hand.fingers])
+            finger_bend(world_landmarks, f.chain, f.bend_skip_base)
+            for f in self.hand.fingers])
         self._spread_open = np.array([
             finger_lateral(world_landmarks, f.chain, R) for f in self.hand.fingers])
 
@@ -205,7 +206,7 @@ class Retargeter:
             idxs, his = self._flex[fi]
             sum_hi = float(np.sum(his))
             if len(idxs) and sum_hi > 1e-6:
-                bend = finger_bend(world_landmarks, finger.chain)
+                bend = finger_bend(world_landmarks, finger.chain, finger.bend_skip_base)
                 curl = (bend - self._bend_open[fi]) * self._bend_gain[fi]
                 q[idxs] = float(np.clip(curl, 0.0, sum_hi)) * (his / sum_hi)
             # Abduction: sideways spread relative to the neutral baseline, capped

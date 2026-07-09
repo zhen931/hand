@@ -32,6 +32,7 @@ class Finger:
     token: str              # substring identifying this finger's joints
     weight: float = 1.0
     bend_gain: float = 1.3  # amplify bend->curl (thumb needs more)
+    bend_skip_base: bool = False  # thumb: ignore the CMC-position angle
     lat_gain: float = 0.6   # sideways spread -> abduction (kept modest to not cross)
     lat_cap: float = 0.3    # max abduction magnitude (radians), so fingers cannot cross
     lat_bias: float = 0.0   # resting offset on the sideways joints
@@ -91,7 +92,7 @@ ORCA = HandConfig(
         Finger("pinky", "right_P-FingerTipAssembly_cd219176", LM_PINKY,
                (17, 18, 19, 20), "_p-", tip_offset=(0, 0, 0.028)),
         Finger("thumb", "right_T-DP_b7429e50", LM_THUMB,
-               (1, 2, 3, 4), "_t-", weight=0.5, bend_gain=2.5,
+               (1, 2, 3, 4), "_t-", weight=0.5, bend_gain=2.5, bend_skip_base=True,
                lat_gain=1.0, lat_cap=0.9, lat_bias=0.35,
                tip_offset=(0, 0, 0.028)),
     ],
