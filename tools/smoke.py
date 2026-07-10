@@ -5,7 +5,7 @@ hand is selected (default: the configured DEFAULT_HAND). Writes images to out/
 and prints per-pose joint travel and fingertip tracking error.
 
     python tools/smoke.py            # default hand
-    python tools/smoke.py leap       # or a named hand
+    python tools/smoke.py orca       # or a named hand
 """
 
 import sys

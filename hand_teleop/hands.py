@@ -31,7 +31,7 @@ class Finger:
     chain: tuple            # landmark indices base->tip, e.g. index (5,6,7,8)
     token: str              # substring identifying this finger's joints
     weight: float = 1.0
-    bend_gain: float = 1.3  # amplify bend->curl (thumb needs more)
+    bend_gain: float = 1.6  # amplify bend->curl (thumb needs more)
     bend_skip_base: bool = False  # thumb: ignore the CMC-position angle
     lat_gain: float = 0.6   # sideways spread -> abduction (kept modest to not cross)
     lat_cap: float = 0.3    # max abduction magnitude (radians), so fingers cannot cross
@@ -59,19 +59,6 @@ class HandConfig:
     def scene_path(self):
         return ASSETS_DIR / self.scene
 
-
-LEAP = HandConfig(
-    name="leap",
-    scene="leap_hand/scene_right.xml",
-    palm_body="palm",
-    base_body="palm",
-    fingers=[
-        Finger("index", "if_ds", LM_INDEX, (5, 6, 7, 8), "if_", tip_offset=(0, -0.03, 0.015)),
-        Finger("middle", "mf_ds", LM_MIDDLE, (9, 10, 11, 12), "mf_", tip_offset=(0, -0.03, 0.015)),
-        Finger("ring", "rf_ds", LM_RING, (13, 14, 15, 16), "rf_", tip_offset=(0, -0.03, 0.015)),
-        Finger("thumb", "th_ds", LM_THUMB, (1, 2, 3, 4), "th_", tip_offset=(0, -0.045, -0.015)),
-    ],
-)
 
 # ORCA v2 right hand: 5 fingers, fully actuated. Body names carry mjSpec hashes.
 # Middle vs ring resolved by rest lateral position (both use the M mesh).
@@ -123,15 +110,15 @@ def _anthro_config():
             Finger("pinky", "pinky_dist", LM_PINKY, (17, 18, 19, 20), "pinky_",
                    tip_offset=offs["pinky"]),
             Finger("thumb", "thumb_dist", LM_THUMB, (1, 2, 3, 4), "thumb_",
-                   bend_gain=1.6, bend_skip_base=True, lat_gain=1.0, lat_cap=0.9,
+                   bend_gain=2.4, bend_skip_base=True, lat_gain=1.0, lat_cap=0.9,
                    tip_offset=offs["thumb"]),
         ],
     )
 
 
 ANTHRO = _anthro_config()
-HANDS = {"leap": LEAP, "orca": ORCA, "anthro": ANTHRO}
-DEFAULT_HAND = "orca"
+HANDS = {"orca": ORCA, "anthro": ANTHRO}
+DEFAULT_HAND = "anthro"
 
 
 @dataclass

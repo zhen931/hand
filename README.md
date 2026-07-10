@@ -2,8 +2,9 @@
 
 Markerless, vision-based teleoperation of a simulated dexterous hand. A webcam
 tracks a human hand and a simulated robot hand mirrors it in real time. The
-default hand is the 5-finger anthropomorphic [ORCA hand](https://www.orcahand.com/);
-the 4-finger [LEAP hand](https://leaphand.com/) is also supported (`--hand leap`).
+default is our own parametric anthropomorphic hand (`--hand anthro`, human
+kinematics); the 5-finger [ORCA hand](https://www.orcahand.com/) (`--hand orca`)
+maps to buyable hardware.
 
 ## So far
 
@@ -60,8 +61,8 @@ retargeter and wrist calibrate, then move your fingers and tilt your hand.
 Pick the hand with `--hand`, wrist motion with `--wrist`:
 
 ```
-python -m hand_teleop.mirror --hand orca      # 5-finger ORCA (default)
-python -m hand_teleop.mirror --hand leap      # 4-finger LEAP
+python -m hand_teleop.mirror --hand anthro    # our anthropomorphic hand (default)
+python -m hand_teleop.mirror --hand orca      # 5-finger ORCA
 python -m hand_teleop.mirror --wrist orient   # rotation only (default)
 python -m hand_teleop.mirror --wrist full     # add translation (noisy depth)
 python -m hand_teleop.mirror --wrist off      # fingers only, palm fixed
@@ -81,16 +82,16 @@ python -m hand_teleop.mirror                                 # mirror the replay
 | Step | Number |
 |---|---|
 | MediaPipe inference | ~10 ms mean, 12 ms p95 |
-| Retarget (Gauss-Newton, 8 iters) | < 2 ms |
+| Retarget (flexion mapping) | < 2 ms |
 | Built-in webcam frame rate | ~30 fps (reports 60, delivers 30) |
 
 
 ## Layout
 
 ```
-hand_teleop/       package: hands, protocol, hand_frame, retarget, wrist, tracker, mirror, record
-assets/orca_hand/  vendored ORCA v2 right hand (MIT), default target
-assets/leap_hand/  vendored MuJoCo Menagerie LEAP hand
+hand_teleop/       package: hands, anthro, protocol, hand_frame, retarget, wrist, tracker, mirror, record
+hand_teleop/anthro.py  parametric anthropomorphic hand (our own design)
+assets/orca_hand/  vendored ORCA v2 right hand (MIT)
 assets/models/     MediaPipe hand_landmarker.task (downloaded, gitignored)
 tools/             smoke tests, pipeline test, model downloader
 ```

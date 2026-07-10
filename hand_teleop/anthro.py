@@ -39,18 +39,17 @@ class AnthroParams:
     palm_l: float = 0.085
     palm_t: float = 0.022
     palm_z: float = 0.15
+    # Right hand: index on +x (thumb side), pinky on -x, palm normal +z.
     fingers: list = field(default_factory=lambda: [
-        FingerSpec("index", -0.027, (0.040, 0.024, 0.020)),
-        FingerSpec("middle", -0.009, (0.045, 0.028, 0.022)),
-        FingerSpec("ring", 0.009, (0.040, 0.026, 0.020)),
-        FingerSpec("pinky", 0.027, (0.033, 0.020, 0.018), radius=0.007),
+        FingerSpec("index", 0.027, (0.040, 0.024, 0.020)),
+        FingerSpec("middle", 0.009, (0.045, 0.028, 0.022)),
+        FingerSpec("ring", -0.009, (0.040, 0.026, 0.020)),
+        FingerSpec("pinky", -0.027, (0.033, 0.020, 0.018), radius=0.007),
     ])
-    # Thumb: base on the radial side, resting pointing direction (world), and
-    # phalanx lengths (metacarpal, proximal, distal). The direction points the
-    # thumb forward, across toward the fingers, and up onto the palmar side, so it
-    # sits opposed rather than sticking out.
-    thumb_pos: tuple = (-0.040, 0.020, 0.006)
-    thumb_dir: tuple = (-0.3, 0.92, 0.0)
+    # Thumb: base on the radial (+x, index) side, resting pointing direction. It
+    # points forward and slightly out so it sits alongside rather than sticking up.
+    thumb_pos: tuple = (0.040, 0.020, 0.006)
+    thumb_dir: tuple = (0.3, 0.92, 0.0)
     thumb_lengths: tuple = (0.034, 0.030, 0.024)
     thumb_radius: float = 0.010
 

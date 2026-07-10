@@ -21,8 +21,8 @@ WRIST = 0
 INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP = 5, 9, 13, 17
 THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP = 4, 8, 12, 16
 
-# Robot fingertip order used everywhere downstream: index, middle, ring, thumb.
-# The LEAP hand has no pinky, so human pinky (20) is intentionally dropped.
+# Default fingertip order for four-finger hands (index, middle, ring, thumb).
+# Five-finger hands pass their own list including the pinky.
 FINGERTIP_LANDMARKS = (INDEX_TIP, MIDDLE_TIP, RING_TIP, THUMB_TIP)
 FINGER_NAMES = ("index", "middle", "ring", "thumb")
 
@@ -118,8 +118,8 @@ def fingertip_vectors(world: np.ndarray, landmarks=FINGERTIP_LANDMARKS) -> np.nd
     """(N, 3) scale-normalized fingertip vectors in the local hand frame.
 
     landmarks is the ordered list of MediaPipe fingertip indices to use, one per
-    robot finger. Defaults to index, middle, ring, thumb (the LEAP layout);
-    five-finger hands pass their own list including the pinky.
+    robot finger. Defaults to index, middle, ring, thumb; five-finger hands pass
+    their own list including the pinky.
     """
     wrist = world[WRIST]
     R = hand_local_frame(world)

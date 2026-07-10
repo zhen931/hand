@@ -32,7 +32,7 @@ from .wrist import WristMapper
 class LandmarkSmoother:
     """Confidence-gated exponential smoothing with an occlusion freeze."""
 
-    def __init__(self, alpha: float = 0.85, conf_freeze: float = 0.4):
+    def __init__(self, alpha: float = 0.9, conf_freeze: float = 0.4):
         self.alpha = alpha
         self.conf_freeze = conf_freeze
         self.state: np.ndarray | None = None
@@ -62,7 +62,7 @@ def _synthetic_stream():
 
 
 def run(source="udp", port=DEFAULT_PORT, headless=0, calibrate_first=True,
-        alpha=0.85, wrist_mode="orient", hand=DEFAULT_HAND, out_dir=None):
+        alpha=0.9, wrist_mode="orient", hand=DEFAULT_HAND, out_dir=None):
     cfg = HANDS[hand] if isinstance(hand, str) else hand
     rt = Retargeter(cfg)
     smoother = LandmarkSmoother(alpha=alpha)
