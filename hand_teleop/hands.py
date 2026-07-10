@@ -42,10 +42,11 @@ class Finger:
 @dataclass
 class HandConfig:
     name: str
-    scene: str                      # path relative to assets/
+    scene: str                      # path relative to assets/ (or "" if builder set)
     palm_body: str
     base_body: str                  # body to attach the free joint to
     fingers: list                   # list[Finger], canonical order
+    builder: object = None          # callable -> MjSpec, instead of loading a scene
     exclude_joints: tuple = ()      # actuated joints not driven by retargeting
     palm_offset: tuple = (0.0, 0.0, 0.0)
     # Per-joint neutral regularization: joint-name substring -> weight. Keeps the
@@ -103,7 +104,33 @@ ORCA = HandConfig(
     reg_tokens={"abd": 0.08, "rot": 0.08, "t-cmc": 0.15, "t-mcp": 0.04, "t-pip": 0.04},
 )
 
-HANDS = {"leap": LEAP, "orca": ORCA}
+def _anthro_config():
+    """Our own parametric anthropomorphic hand (human kinematics, sim-only). Built
+    from parameters, so it doubles as the design prototype for a physical hand and
+    the canonical near-human representation. See anthro.py."""
+    from .anthro import build_anthro_spec, tip_offsets
+    offs = tip_offsets()
+    return HandConfig(
+        name="anthro", scene="", palm_body="palm", base_body="palm",
+        builder=build_anthro_spec,
+        fingers=[
+            Finger("index", "index_dist", LM_INDEX, (5, 6, 7, 8), "index_",
+                   tip_offset=offs["index"]),
+            Finger("middle", "middle_dist", LM_MIDDLE, (9, 10, 11, 12), "middle_",
+                   tip_offset=offs["middle"]),
+            Finger("ring", "ring_dist", LM_RING, (13, 14, 15, 16), "ring_",
+                   tip_offset=offs["ring"]),
+            Finger("pinky", "pinky_dist", LM_PINKY, (17, 18, 19, 20), "pinky_",
+                   tip_offset=offs["pinky"]),
+            Finger("thumb", "thumb_dist", LM_THUMB, (1, 2, 3, 4), "thumb_",
+                   bend_gain=1.6, bend_skip_base=True, lat_gain=1.0, lat_cap=0.9,
+                   tip_offset=offs["thumb"]),
+        ],
+    )
+
+
+ANTHRO = _anthro_config()
+HANDS = {"leap": LEAP, "orca": ORCA, "anthro": ANTHRO}
 DEFAULT_HAND = "orca"
 
 
@@ -128,7 +155,8 @@ def build_model(cfg: HandConfig, floating: bool = False):
 
     Returns (model, data, ModelInfo).
     """
-    spec = mujoco.MjSpec.from_file(str(cfg.scene_path))
+    spec = cfg.builder() if cfg.builder is not None \
+        else mujoco.MjSpec.from_file(str(cfg.scene_path))
 
     spec.body(cfg.palm_body).add_site(
         name="palm_site", pos=list(cfg.palm_offset),
