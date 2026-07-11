@@ -114,6 +114,29 @@ def finger_lateral(world: np.ndarray, chain, R: np.ndarray) -> float:
     return float(np.arctan2(float(d @ R[:, 0]), float(d @ R[:, 1])))
 
 
+def finger_joint_bends(world: np.ndarray, chain, skip_base: bool = False) -> np.ndarray:
+    """Per-joint bend angles (radians) along a finger, proximal to distal.
+
+    For a finger chain (mcp, pip, dip, tip) with the wrist as reference this
+    returns [mcp_bend, pip_bend, dip_bend]. These map straight onto a robot finger
+    with matching joints (the anthropomorphic hand), giving an accurate per-joint
+    copy rather than a lumped total. skip_base drops the first (thumb CMC-position)
+    angle.
+    """
+    pts = [world[WRIST]] + [world[i] for i in chain]
+    bends = []
+    for k in range(1, len(pts) - 1):
+        a = pts[k] - pts[k - 1]
+        b = pts[k + 1] - pts[k]
+        na, nb = np.linalg.norm(a), np.linalg.norm(b)
+        ang = 0.0
+        if na > 1e-6 and nb > 1e-6:
+            ang = float(np.arccos(np.clip(np.dot(a, b) / (na * nb), -1.0, 1.0)))
+        bends.append(ang)
+    bends = np.array(bends)
+    return bends[1:] if skip_base else bends
+
+
 def fingertip_vectors(world: np.ndarray, landmarks=FINGERTIP_LANDMARKS) -> np.ndarray:
     """(N, 3) scale-normalized fingertip vectors in the local hand frame.
 

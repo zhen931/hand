@@ -29,7 +29,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from .hand_frame import (finger_bend, finger_lateral, fingertip_vectors,
+from .hand_frame import (finger_joint_bends, finger_lateral, fingertip_vectors,
                         hand_local_frame)
 from .hands import DEFAULT_HAND, HANDS, build_model
 
@@ -66,12 +66,13 @@ class Retargeter:
         self._flex = self._flex_groups()
         self._lat = self._lateral_groups()
         self._beta = 0.85                 # joint-space smoothing (high = responsive)
-        self.lat_sign = -1.0              # spread direction; flip with 'l' if wrong
+        self.lat_sign = 1.0               # spread direction; flip with 'l' if wrong
         nfing = len(self.hand.fingers)
-        # Bend/spread at a relaxed open hand are not zero (fingers curve and fan
-        # slightly, plus tracking noise), so subtract per-finger open baselines;
-        # press 'c' with a flat hand to set them. Gains amplify to full range.
-        self._bend_open = np.array([0.35] * nfing)
+        # Per-joint flexion baseline (radians of natural rest curl), one entry per
+        # flexion joint of each finger. A small FIXED default so it works out of
+        # the box without calibration; 'c' on a flat hand refines it. This avoids
+        # the failure where a bad auto-calibration clamps every finger to open.
+        self._flex_base = [np.full(len(self._flex[fi][0]), 0.2) for fi in range(nfing)]
         self._spread_open = np.zeros(nfing)
         self._bend_gain = np.array([f.bend_gain for f in self.hand.fingers])
         self._lat_gain = np.array([f.lat_gain for f in self.hand.fingers])
@@ -176,14 +177,31 @@ class Retargeter:
 
     # -- calibration ----------------------------------------------------------------
 
+    def _mapped_bends(self, world_landmarks, fi, finger):
+        """Human per-joint bends mapped onto this finger's robot flexion joints.
+
+        Equal counts (anthropomorphic hand) is a direct copy; if the robot has
+        fewer flexion joints, the trailing human joints are summed into the last.
+        """
+        idxs, _ = self._flex[fi]
+        nfl = len(idxs)
+        jb = finger_joint_bends(world_landmarks, finger.chain, finger.bend_skip_base)
+        nb = len(jb)
+        if nfl == nb:
+            return jb
+        if nfl < nb:
+            return np.append(jb[:nfl - 1], np.sum(jb[nfl - 1:]))
+        return np.append(jb, np.zeros(nfl - nb))
+
     def calibrate(self, world_landmarks: np.ndarray) -> None:
-        """Record each finger's bend and spread at this (open, neutral) pose as the
-        baselines, so a fully open hand drives the robot fingers fully open and a
-        neutral spread reads as zero abduction. Hold a flat hand and press 'c'."""
+        """Refine baselines from a flat, open, neutral hand (press 'c'). Guarded:
+        only updates if the hand actually looks open, so calibrating on a curled
+        first frame cannot pin the fingers permanently extended."""
         R = hand_local_frame(world_landmarks)
-        self._bend_open = np.array([
-            finger_bend(world_landmarks, f.chain, f.bend_skip_base)
-            for f in self.hand.fingers])
+        mapped = [self._mapped_bends(world_landmarks, fi, f)
+                  for fi, f in enumerate(self.hand.fingers)]
+        if np.mean([np.mean(m) for m in mapped]) < 0.6:      # hand is open
+            self._flex_base = [m.copy() for m in mapped]
         self._spread_open = np.array([
             finger_lateral(world_landmarks, f.chain, R) for f in self.hand.fingers])
 
@@ -202,13 +220,12 @@ class Retargeter:
         q = np.zeros(self.n)
         R = hand_local_frame(world_landmarks)
         for fi, finger in enumerate(self.hand.fingers):
-            # Flexion: distribute the finger's curl across its flexion joints.
-            idxs, his = self._flex[fi]
-            sum_hi = float(np.sum(his))
-            if len(idxs) and sum_hi > 1e-6:
-                bend = finger_bend(world_landmarks, finger.chain, finger.bend_skip_base)
-                curl = (bend - self._bend_open[fi]) * self._bend_gain[fi]
-                q[idxs] = float(np.clip(curl, 0.0, sum_hi)) * (his / sum_hi)
+            # Flexion: copy each human joint's bend onto the matching robot joint.
+            idxs, _ = self._flex[fi]
+            if len(idxs):
+                targets = self._mapped_bends(world_landmarks, fi, finger)
+                a = (targets - self._flex_base[fi]) * self._bend_gain[fi]
+                q[idxs] = np.clip(a, 0.0, self.hi[idxs])
             # Abduction: sideways spread relative to the neutral baseline, capped
             # well inside the joint limits so fingers fan but never cross.
             lat = self._lat[fi]

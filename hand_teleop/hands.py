@@ -31,7 +31,7 @@ class Finger:
     chain: tuple            # landmark indices base->tip, e.g. index (5,6,7,8)
     token: str              # substring identifying this finger's joints
     weight: float = 1.0
-    bend_gain: float = 1.6  # amplify bend->curl (thumb needs more)
+    bend_gain: float = 1.15  # per-joint bend->curl (near 1.0 = direct copy)
     bend_skip_base: bool = False  # thumb: ignore the CMC-position angle
     lat_gain: float = 0.6   # sideways spread -> abduction (kept modest to not cross)
     lat_cap: float = 0.3    # max abduction magnitude (radians), so fingers cannot cross
@@ -110,7 +110,7 @@ def _anthro_config():
             Finger("pinky", "pinky_dist", LM_PINKY, (17, 18, 19, 20), "pinky_",
                    tip_offset=offs["pinky"]),
             Finger("thumb", "thumb_dist", LM_THUMB, (1, 2, 3, 4), "thumb_",
-                   bend_gain=2.4, bend_skip_base=True, lat_gain=1.0, lat_cap=0.9,
+                   bend_gain=1.6, bend_skip_base=True, lat_gain=1.0, lat_cap=0.9,
                    tip_offset=offs["thumb"]),
         ],
     )
